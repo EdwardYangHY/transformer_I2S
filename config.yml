@@ -1,0 +1,64 @@
+data:
+  # store with absolute path
+  # not implemented yet
+  # Real Voice leaveout number
+  train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
+  valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
+  test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
+  max_len: 500
+  image_resolution: 256
+
+i2u:
+  #### Used when inferencing
+  model: "../../model/I2U/trimmed_mapping_SpeakerALL_Color/BEST_checkpoint_coco_2_cap_per_img_1_min_word_freq_gpu.pth.tar" # leave out colors
+  wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
+  
+  #### Used when training models
+  #captions_per_image: 2 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
+  captions_per_image: 1 # change it after LJS U2U
+  min_word_freq: 1
+  #dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
+  dir_name: "encodec1"
+
+  #### Model params
+  # batch_size: 32
+  # num_workers: 10
+  # epoch: 80
+
+  train_params:
+    batch_size: 32
+    num_workers: 1
+    grad_clip: 5.
+    lr: 1.0e-3 # set to 4.0e-4 if scheduler = False
+    optimizer: "Adam" # [Adam, AdamW]
+    epoch: 200
+    warmup_epoch: 20 # only make sense when use_scheduler = True
+    use_scheduler: True
+    print_freq: 10
+    checkpoint_path: #"/net/papilio/storage2/yhaoyuan/transformer_I2U/saved_model/I2U/encodec1/bleu-4_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
+
+
+  model_params:
+    d_model: 1024 # 2048?
+    nhead: 8 # 16?
+    num_layers: 6 # 12?
+    activation: "gelu"
+    layer_norm_eps: 1.0e-5
+    batch_first: True
+    norm_first : True
+    dropout: 0.1
+    image_backbone: "ResNet"
+    fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
+    use_refine_encoder: True
+    use_global_feature: True
+    AR: True
+
+  refine_encoder_params:
+    input_resolution: 14
+    depth: 3
+    num_heads: 8
+    window_size: 14  # =14 退化为普通MSA结构
+    shift_size: 0    # =0  无SW-MSA，仅W-MSA
+    mlp_ratio: 4
+
+# 存储模型请将config一起存储
