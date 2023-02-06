@@ -14,11 +14,12 @@ i2u:
   wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
   
   #### Used when training models
-  #captions_per_image: 2 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
-  captions_per_image: 1 # change it after LJS U2U
+  captions_per_image: 2 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
+  #captions_per_image: 1 # change it after LJS U2U
   min_word_freq: 1
-  #dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
-  dir_name: "encodec1"
+  # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
+  # dir_name: "encodec1"
+  dir_name: "trimmed_mapping_SpeakerALL_Color"
 
   #### Model params
   # batch_size: 32
@@ -26,10 +27,10 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 32
+    batch_size: 64
     num_workers: 1
     grad_clip: 5.
-    lr: 1.0e-3 # set to 4.0e-4 if scheduler = False
+    lr: 1.0e-2 # set to 4.0e-4 if scheduler = False
     optimizer: "Adam" # [Adam, AdamW]
     epoch: 200
     warmup_epoch: 20 # only make sense when use_scheduler = True

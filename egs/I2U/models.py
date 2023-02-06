@@ -423,7 +423,7 @@ class TransformerConditionedLM(TransformerLM):
         with torch.no_grad():
             device = next(self.parameters()).device
             img = img.to(device)
-            print(device)
+            # print(device)
 
             assert img.dim() == 4, "Input should be sized: [1, C, H, W]"
             assert img.size(0) == 1, "Inference one image at a time"
@@ -502,12 +502,13 @@ class TransformerConditionedLM(TransformerLM):
                 top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
                 k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
                 # Break if things have been going on too long
-                print(k, step)
+                # print(k, step)
                 # print(seqs)
                 if step > max_len:
                     break
                 step += 1
-            
+                
+            # print(seqs)
             if len(complete_seqs_scores) != 0:
                 i = complete_seqs_scores.index(max(complete_seqs_scores))
                 seq = complete_seqs[i]
