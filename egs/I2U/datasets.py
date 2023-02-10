@@ -114,3 +114,44 @@ class CaptionDataset_transformer(CaptionDataset):
 
     def __len__(self):
         return self.dataset_size
+
+class UnitDataset(Dataset):
+    """
+    A PyTorch Dataset class to be used in a PyTorch DataLoader to create batches.
+
+    Only load units for training a pure unit-LM
+    """
+
+    def __init__(self, data_folder, data_name, split, transform=None):
+        """
+        :param data_folder: folder where data files are stored
+        :param data_name: base name of processed datasets
+        :param split: split, one of 'TRAIN', 'VAL'
+        :param transform: image transform pipeline
+        """
+        self.data_folder = data_folder
+        self.data_name = data_name
+        self.split = split
+        assert self.split in {'TRAIN', 'VAL'}
+
+        # Load encoded captions (completely into memory)
+        with open(os.path.join(data_folder, self.split + '_CAPTIONS_' + data_name + '.json'), 'r') as j:
+            self.captions = json.load(j)
+
+        # Load caption lengths (completely into memory)
+        with open(os.path.join(data_folder, self.split + '_CAPLENS_' + data_name + '.json'), 'r') as j:
+            self.caplens = json.load(j)
+
+        # Total number of datapoints
+        self.dataset_size = len(self.captions)
+    
+    def __getitem__(self, i):
+        # Remember, the Nth caption corresponds to the (N // captions_per_image)th image
+        caption = torch.LongTensor(self.captions[i])
+
+        caplen = torch.LongTensor([self.caplens[i]])
+
+        return caption, caplen
+
+    def __len__(self):
+        return self.dataset_size

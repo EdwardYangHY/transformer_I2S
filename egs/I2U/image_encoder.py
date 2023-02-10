@@ -71,6 +71,68 @@ class DinoResEncoder(nn.Module):
             for p in c.parameters():
                 p.requires_grad = fine_tune
 
+class DinoResEncoder_FixPooling(nn.Module):
+    def __init__(self, embed_dim=2048):
+        super(DinoResEncoder_FixPooling, self).__init__()
+        #self.enc_image_size = encoded_image_size
+
+        # resnet = resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+
+        # resnet = resnet50(weights=None)
+        # resnet = torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
+
+        #resnet = resnet50(pretrained=False) # pretrained will be removed in higher version 
+        resnet = resnet50(weights=None)
+        resnet.fc = torch.nn.Identity()
+        resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+
+        # Remove linear and pool layers (since we're not doing classification)
+        modules = list(resnet.children())[:-2]
+        self.resnet = nn.Sequential(*modules)
+
+        # Resize image to fixed size to allow input images of variable size
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
+        self.to_embedding = nn.Linear(2048, embed_dim)
+        self.init_weights()
+        self.fine_tune()
+    
+    def init_weights(self):
+        """
+        Initializes some parameters with values from the uniform distribution.
+        """
+        self.to_embedding.weight.data.uniform_(-0.1, 0.1)
+
+    def forward(self, images):
+        """
+        Forward propagation.
+
+        :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
+        :return: encoded images
+        """
+        
+        out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
+        out = self.adaptive_pool(out)  # (batch_size, 2048, 7, 7)
+        out = out.permute(0, 2, 3, 1)  # (batch_size, image_size/32, image_size/32, 2048)
+        batch_size = out.size(0)
+        now_embedding_dim = out.size(-1)
+        out = out.view(batch_size, -1 , now_embedding_dim)
+        out = self.to_embedding(out)
+        gx = out.mean(1)
+        return out, gx
+
+    def fine_tune(self, fine_tune=False):
+        """
+        Allow or prevent the computation of gradients for convolutional blocks 2 through 4 of the encoder.
+
+        :param fine_tune: Allow?
+        """
+        for p in self.resnet.parameters():
+            p.requires_grad = False
+        # If fine-tuning, only fine-tune convolutional blocks 2 through 4
+        for c in list(self.resnet.children())[5:]:
+            for p in c.parameters():
+                p.requires_grad = fine_tune
+
 class ViTEncoder(nn.Module):
     '''
         Only take image size as [224, 224].

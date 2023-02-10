@@ -30,7 +30,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from image_encoder import DinoResEncoder, DinoResEncoder_FixPooling, ViTEncoder
+from image_encoder import DinoResEncoder, ViTEncoder
 from PureT_encoder import Encoder as refine_encoder
 
 import yaml
@@ -93,7 +93,7 @@ class TransformerLM(nn.Module):
         self.pos_encoder = PositionalEncoding(d_model)
         
         encoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
-        # decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
 
         # Encoder
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model,
@@ -123,7 +123,6 @@ class TransformerLM(nn.Module):
             False is other
         主要是key padding mask是用来遮挡这个这个这个 padding 的部分
         需要：src_key_padding_mask 和 tgt_key_padding_mask来补足没有encoder的问题
-
         A LM only.
         """
         x = self.embed(x)
@@ -136,7 +135,6 @@ class TransformerLM(nn.Module):
             nn.TransformerDecoder requires (tgt, memory, *tgt_mask, *memory_mask,
             *tgt_key_padding_mask, *memory_key_padding_mask)
             Where memory is needed for cross attention. (Q, K) comes from memory.
-
             But this is an unconditioned LM only, so no memory will be in the input.
             We use Transformer Encoder instead, and src_mask works as tgt_mask.
         '''
@@ -164,7 +162,6 @@ class TransformerLM(nn.Module):
         来自原来的function
         math:`(L, S)` or :math:`(N\cdot\text{num\_heads}, L, S)`, where :math:`N` is the batch size,
         math:`L` is the target sequence length, and :math:`S` is the source sequence length.
-
         args : 
             img_len : input image_features len. 
                         e.g.: [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
@@ -206,7 +203,6 @@ class TransformerLM(nn.Module):
         来自原来的function
         math:`(L, S)` or :math:`(N\cdot\text{num\_heads}, L, S)`, where :math:`N` is the batch size,
         math:`L` is the target sequence length, and :math:`S` is the source sequence length.
-
         args : 
             img_len : input image_ features len. 
                         e.g.: [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
@@ -215,13 +211,11 @@ class TransformerLM(nn.Module):
         
         Note :
             Normally this will not be used unless you cat [image, seq] and put them into 
-
         [0.,   0.,   0.,   0., -inf, -inf, -inf, -inf, -inf],
         [0.,   0.,   0.,   0.,   0., -inf, -inf, -inf, -inf],
         [0.,   0.,   0.,   0.,   0.,   0., -inf, -inf, -inf],
         [0.,   0.,   0.,   0.,   0.,   0.,   0., -inf, -inf],
         [0.,   0.,   0.,   0.,   0.,   0.,   0.,   0., -inf],
-
         Note: The first token of the seq_len is a <BOS>, which should be always attended？
         """
         return torch.triu(torch.full((seq_len, img_len + seq_len), float('-inf')), diagonal=seq_len-1)
@@ -271,8 +265,7 @@ class TransformerConditionedLM(TransformerLM):
 
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
-            self.image_encoder = DinoResEncoder(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
-            # self.image_encoder = DinoResEncoder_NoPooling(embed_dim=d_model) 
+            self.image_encoder = DinoResEncoder(embed_dim=d_model) 
             self.image_encoder.fine_tune(self.fine_tune_image_encoder)
         elif image_backbone.upper() == "VIT":
             self.image_encoder = ViTEncoder(embed_dim=d_model) 
@@ -320,28 +313,23 @@ class TransformerConditionedLM(TransformerLM):
         self.classifier = nn.Linear(d_model, vocab_size)
         self.init_weights()
     
-    def prefuse_gx(self, x, gx, seq_padding_mask):
-        if self.use_global_feature:
-            if gx.dim() == 2:
-                # Here we don't use the global feature the same way as PureT:
-                # We cat [gx, x] in dim = 1, instead of dim = 2 (expanding the feature)
-                gx = gx.unsqueeze(dim = 1)
-            decoder_input = torch.cat([gx,x], dim = 1)
-            short_cut = decoder_input
-            decoder_input = self.prefusion_layer(decoder_input)
-            decoder_input = decoder_input + short_cut
-            decoder_input = self.prefusion_norm(decoder_input)
-            # besides, the padding mask should be changed
-            decoder_input_padding_mask = self.generate_cat_key_padding_mask(img_len=1, padding_mask=seq_padding_mask).to(x.device)
-            decoder_input_attn_mask = self.generate_VALLE_mask(img_len=1, seq_len=decoder_input.size(dim=1)-1).to(x.device)
-        else:
-            decoder_input = x
-            decoder_input_padding_mask = seq_padding_mask
-            decoder_input_attn_mask = self.generate_square_subsequent_mask(decoder_input.size(dim=1)).to(x.device)
-        return decoder_input, decoder_input_padding_mask, decoder_input_attn_mask
-
     def forward(self, imgs, seq, seq_padding_mask, seq_len):
-
+        '''
+            TO DO:
+            Like used in Previous LSTM model:
+            use: 
+            seq_len.squeeze(1).sort(dim=0, descending=True)
+            to get smaller data
+            根据这个原则reshape一下输入 [batch, max_len+2, d_model] -> [batch, max_decode_step, d_model]
+            We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
+            So, decoding lengths are actual lengths - 1
+            seq_padding_mask: 
+                除了 padding被mask了以外, end token同样被mask掉了
+                保证了decoder的输入不会有 <end>
+            (感觉不是很有必要: 因为最后decode_lenths,
+            在input中自动mask掉了<end>, 在output自动mask掉了<end>的后一个token
+            也就是说, input也许会输入<end>, 但是最后相应的输出不会有loss参与)
+        '''
         seq_len, sort_ind = seq_len.sort(dim=0, descending=True)
         imgs = imgs[sort_ind]
         encoded_seq = seq[sort_ind]
@@ -369,8 +357,31 @@ class TransformerConditionedLM(TransformerLM):
             '''
             gx, imgs = self.refine_encoder(imgs)
             
-        decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, gx, seq_padding_mask)
+        if self.use_global_feature:
+            if gx.dim() == 2:
+                # Here we don't use the global feature the same way as PureT:
+                # We cat [gx, x] in dim = 1, instead of dim = 2 (expanding the feature)
+                gx = gx.unsqueeze(dim = 1)
+            decoder_input = torch.cat([gx,x], dim = 1)
+            short_cut = decoder_input
+            decoder_input = self.prefusion_layer(decoder_input)
+            decoder_input = decoder_input + short_cut
+            decoder_input = self.prefusion_norm(decoder_input)
+            # besides, the padding mask should be changed
+            decoder_input_padding_mask = self.generate_cat_key_padding_mask(img_len=1, padding_mask=seq_padding_mask).to(x.device)
+            decoder_input_attn_mask = self.generate_VALLE_mask(img_len=1, seq_len=decoder_input.size(dim=1)-1).to(x.device)
+        else:
+            decoder_input = x
+            decoder_input_padding_mask = seq_padding_mask
+            decoder_input_attn_mask = self.generate_square_subsequent_mask(decoder_input.size(dim=1)).to(x.device)
+        
 
+        # decoder_output = self.decoder(
+        #     tgt = decoder_input, 
+        #     memory = imgs, 
+        #     tgt_mask = decoder_input_attn_mask, 
+        #     tgt_key_padding_mask = decoder_input_padding_mask
+        #     )
         if self.AR:
             decoder_output = self.decoder(
                 tgt = decoder_input, 
@@ -404,7 +415,7 @@ class TransformerConditionedLM(TransformerLM):
         with torch.no_grad():
             device = next(self.parameters()).device
             img = img.to(device)
-            # print(device)
+            print(device)
 
             assert img.dim() == 4, "Input should be sized: [1, C, H, W]"
             assert img.size(0) == 1, "Inference one image at a time"
@@ -450,11 +461,6 @@ class TransformerConditionedLM(TransformerLM):
                 # torch.save(decoder_input, "./inter_tensor.pt")
                 # if step == 90:
                 #     decoder_input = torch.load("./inter_tensor.pt")
-
-                # TODO:
-                '''
-                    def beam_search():
-                '''
                 x = self.decoder(decoder_input, imgs, mask) # 解码时必须有mask， 为什么？
                 # x = self.decoder(decoder_input, imgs)
                 scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
@@ -488,143 +494,15 @@ class TransformerConditionedLM(TransformerLM):
                 top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
                 k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
                 # Break if things have been going on too long
-                # print(k, step)
+                print(k, step)
                 # print(seqs)
                 if step > max_len:
                     break
                 step += 1
-                
-            # print(seqs)
+            
             if len(complete_seqs_scores) != 0:
                 i = complete_seqs_scores.index(max(complete_seqs_scores))
                 seq = complete_seqs[i]
             else:
                 seq = []
             return seq
-
-class TransformerSentenceLM(TransformerConditionedLM):
-    def __init__(
-        self,
-        vocab_size: int,
-        d_model: int = 1024,
-        nhead: int = 8,
-        num_layers: int = 6,
-        activation="gelu",
-        layer_norm_eps: float = 1e-5,
-        batch_first: bool = True,
-        norm_first: bool = True,
-        dropout: float = 0.1,
-        image_backbone: str = "ResNet",
-        use_sentence_encoder: bool = True,
-        sentence_embed: int = 16,
-        fine_tune_image_encoder: bool = False,
-        use_refine_encoder: bool = False,
-        use_global_feature: bool = False,
-        AR: bool = True
-        ):
-        super().__init__(
-            vocab_size,
-            d_model,
-            nhead,
-            num_layers,
-            activation,
-            layer_norm_eps,
-            batch_first,
-            norm_first,
-            dropout,
-            image_backbone,
-            fine_tune_image_encoder,
-            use_refine_encoder,
-            use_global_feature,
-            AR
-        )
-        self.use_sentence_encoder = use_sentence_encoder
-
-        # Get Image backbone
-        if image_backbone.upper() == "RESNET":
-            self.image_encoder = DinoResEncoder_FixPooling(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
-            # self.image_encoder = DinoResEncoder_NoPooling(embed_dim=d_model) 
-            self.image_encoder.fine_tune(self.fine_tune_image_encoder)
-        elif image_backbone.upper() == "VIT":
-            print("Unimplemented Yet")
-        elif image_backbone.upper() == "ST":
-            print("Unimplemented Yet")
-            return None
-        else:
-            print("Please choose an image backbone: ResNet, ViT, SW")
-            return None
-        
-        if self.use_sentence_encoder:
-            self.sentence_encoder = self.LM_decoder
-            self.mu = nn.Linear(d_model, sentence_embed)
-            self.make_memory = nn.Linear(sentence_embed, d_model)
-    
-    def encode_x(self, x, seq_len, seq_padding_mask, verbose):
-        z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
-        z = z * seq_padding_mask.logical_not().unsqueeze(2)
-        z = z.sum(dim = 1)/ seq_len.unsqueeze(1)
-        mu = self.mu(z)  # (batch, sentence_embed)
-        if verbose:
-            print("mu", mu, flush=True)
-        # log_std = self.log_std(z)  # (batch, sentence_embed)
-        log_std = torch.full_like(mu, 0.1).log()
-        eps = torch.randn_like(log_std)  # (batch, sentence_embed)
-        z = mu + eps*log_std.exp()  # (batch, sentence_embed)
-        z = self.make_memory(z)  # (batch, d_model)
-        return z
-
-    def forward(self, imgs, seq, seq_padding_mask, seq_len, verbose = False):
-        '''
-            TO DO:
-            Like used in Previous LSTM model:
-            use: 
-            seq_len.squeeze(1).sort(dim=0, descending=True)
-            to get smaller data
-            根据这个原则reshape一下输入 [batch, max_len+2, d_model] -> [batch, max_decode_step, d_model]
-
-            We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
-            So, decoding lengths are actual lengths - 1
-
-            seq_padding_mask: 
-                除了 padding被mask了以外, end token同样被mask掉了
-                保证了decoder的输入不会有 <end>
-            (感觉不是很有必要: 因为最后decode_lenths,
-            在input中自动mask掉了<end>, 在output自动mask掉了<end>的后一个token
-            也就是说, input也许会输入<end>, 但是最后相应的输出不会有loss参与)
-        '''
-        seq_len, sort_ind = seq_len.sort(dim=0, descending=True)
-        imgs = imgs[sort_ind]
-        encoded_seq = seq[sort_ind]
-        decode_lenths = (seq_len - 1).tolist()
-        max_length = max(decode_lenths)
-        seq = encoded_seq[:, :max_length]
-        seq_padding_mask = seq_padding_mask[:, :max_length]
-
-        # get seq into embeddings
-        x = self.embed(seq)
-        x = self.pos_encoder(x)
-        if self.use_sentence_encoder:
-            z = self.encode_x(x, seq_len, seq_padding_mask, verbose)
-            
-        imgs, gx = self.image_encoder(imgs)
-        if self.use_refine_encoder:
-            gx, imgs = self.refine_encoder(imgs)
-        
-        decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, gx, seq_padding_mask)
-       
-        if self.use_sentence_encoder:
-            z = torch.cat([imgs, z.unsqueeze(1)], dim = 1)
-        else:
-            z = imgs
-            
-        decoder_output = self.decoder(
-            tgt = decoder_input, 
-            memory = z, 
-            tgt_mask = decoder_input_attn_mask, 
-            tgt_key_padding_mask = decoder_input_padding_mask
-            )
-        
-        if self.use_global_feature:
-            decoder_output = decoder_output[:, 1:, :] # the output lenth should be reduced
-        decoder_output = self.classifier(decoder_output)
-        return decoder_output, encoded_seq, decode_lenths, sort_ind
