@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
 from models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
 from datasets import *
-from utils_sentence import *       #changed
+from utils_LM import *       #changed
 from nltk.translate.bleu_score import corpus_bleu
 # from torch.optim.lr_scheduler import LambdaLR
 import shutil
@@ -15,8 +15,7 @@ import shutil
 from torch.utils.tensorboard import SummaryWriter
 
 import yaml
-
-config_path = '../../config_sentence.yml'
+config_path = "../../config_LM.yml"
 with open(config_path, 'r') as yml:
     config = yaml.safe_load(yml)
 
@@ -98,8 +97,7 @@ def main():
 
     # Initialize / load checkpoint
     model_params['vocab_size'] = len(word_map)
-    model = TransformerSentenceLM(**model_params)
-    # model = TransformerSentenceLM(**model_params)
+    model = TransformerLM(**model_params)
 
     # optimizer = torch.optim.Adam(model.parameters(), train_params["lr"])
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
@@ -121,25 +119,19 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     train_loader = torch.utils.data.DataLoader(
-        CaptionDataset_transformer(data_folder, data_name, 'TRAIN', transform=transforms.Compose([normalize])),
+        UnitDatasetMask(data_folder, data_name, 'TRAIN', word_map=word_map),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
     val_loader = torch.utils.data.DataLoader(
-        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
+        UnitDatasetMask(data_folder, data_name, 'VAL', word_map=word_map),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
     
     # Epochs
-    writer = SummaryWriter(f"../../saved_model/I2U/{dir_name}/{train_ID}/log")
+    writer = SummaryWriter(f"../../saved_model/LM/{dir_name}/{train_ID}/log")
 
     # Copy config to present model dir to keep record
-    shutil.copyfile(config_path, f"../../saved_model/I2U/{dir_name}/{train_ID}/config_sentence.yml")
+    shutil.copyfile(config_path, f"../../saved_model/LM/{dir_name}/{train_ID}/config_LM.yml")
 
     for epoch in range(start_epoch, epochs):
-        # recent_bleu4, top5acc_avg, losses_avg = validate(
-        #     val_loader, 
-        #     model, 
-        #     criterion
-        # )
-
         train(
             train_loader,
             model,
@@ -152,25 +144,27 @@ def main():
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
             scheduler.step()
         # validata
-        recent_bleu4, top5acc_avg, losses_avg = validate(
+        top5acc_avg, losses_avg = validate(
             val_loader, 
             model, 
             criterion
         )
-        writer.add_scalar("Valid/Bleu4", recent_bleu4, epoch)
         writer.add_scalar("Valid/Top5Accuracy", top5acc_avg, epoch)
         writer.add_scalar("Valid/Losses", losses_avg, epoch)
-        # Judge model through bleu4 score
-        is_best_bleu4 = recent_bleu4 > best_bleu4
-        best_bleu4 = max(recent_bleu4, best_bleu4)
+        # Judge model
+        recent_bleu4 = 0
+        is_best_accuracy = top5acc_avg > best_accuracy
+        # is_best_bleu4 = recent_bleu4 > best_bleu4
+        best_accuracy = max(top5acc_avg, best_accuracy)
         start = time.time()
-        save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_bleu4, train_ID, device)
+        #save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_bleu4, train_ID, device)
+        save_checkpoint("top5acc", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_accuracy, train_ID, device=None)
         print(f"Saving model in {time.time() - start} seconds")
         is_best_accuracy = top5acc_avg > best_accuracy
         best_accuracy = max(top5acc_avg, best_accuracy)
         if is_best_accuracy:
             pass
-            #save_checkpoint("top5acc", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_accuracy, device=None)
+        
 
 def train(train_loader, model, criterion, optimizer, epoch, writer):
     """
@@ -195,19 +189,17 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
     start = time.time()
 
     # Batches
-    for i, (imgs, caps, caplens, padding_mask) in enumerate(train_loader):
+    for i, (caps, caplens, padding_mask) in enumerate(train_loader):
         data_time.update(time.time() - start)
 
         # Move to GPU, if available
-        imgs = imgs.to(device)
         caps = caps.to(device)
         caplens = caplens.to(device)
         caplens = caplens.squeeze()
         padding_mask = padding_mask.to(device)
 
         # Forward prop.
-        logits, encoded_seq, decode_lengths, sort_ind, kl_loss = model(
-            imgs,
+        logits, encoded_seq, decode_lengths, sort_ind = model(
             caps,
             padding_mask,
             caplens
@@ -222,7 +214,7 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
         targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
 
         # Calculate loss
-        loss = criterion(scores, targets) + kl_weight*kl_loss
+        loss = criterion(scores, targets)
 
         # Back prop.
         optimizer.zero_grad()
@@ -265,31 +257,26 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
     top5accs = AverageMeter()
     start = time.time()
 
-    refs = list() # GT captions
-    hypos = list() # pred captions
-
     with torch.no_grad():
-        for i, (imgs, caps, caplens, padding_mask, all_caps, all_padding_mask) in enumerate(val_loader):
-            imgs = imgs.to(device)
+        for i, (caps, caplens, padding_mask) in enumerate(val_loader):
+
             caps = caps.to(device)
             caplens = caplens.to(device)
             caplens = caplens.squeeze()
             padding_mask = padding_mask.to(device)
-            all_caps = all_caps.to(device)
-            all_padding_mask = all_padding_mask.to(device)
 
-            logits, encoded_seq, decode_lengths, sort_ind, kl_loss = model(
-                imgs,
+            logits, encoded_seq, decode_lengths, sort_ind = model(
                 caps,
                 padding_mask,
                 caplens
             )
+
             targets = encoded_seq[:, 1:]
             scores_copy = logits.clone()
             scores, _, _, _ = pack_padded_sequence(logits, decode_lengths, batch_first=True, enforce_sorted=False)
             targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
             
-            loss = criterion(scores, targets) + kl_weight*kl_loss
+            loss = criterion(scores, targets)
 
             # Keep track of current validations
             losses.update(loss.item(), sum(decode_lengths))
@@ -309,45 +296,11 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Top-5 Accuracy {top5.val:.3f} ({top5.avg:.3f})\t'.format(i, len(val_loader), batch_time=batch_time,
                                                                                 loss=losses, top5=top5accs))
-
-            # Store references (true captions), and hypothesis (prediction) for each image
-            # If for n images, we have n hypotheses, and references a, b, c... for each image, we need -
-            # references = [[ref1a, ref1b, ref1c], [ref2a, ref2b], ...], hypotheses = [hyp1, hyp2, ...]
-
-            # References
-            all_caps = all_caps[sort_ind]  # because images were sorted in the decoder
-            for j in range(all_caps.shape[0]):
-                img_caps = all_caps[j].tolist()
-                img_captions = list(
-                    map(lambda c: [w for w in c if w not in {word_map['<start>'], word_map['<pad>']}],
-                        img_caps))  # remove <start> and pads
-                refs.append(img_captions)
-
-            # Hypotheses
-            _, preds = torch.max(scores_copy, dim=2)
-            preds = preds.tolist()
-            temp_preds = list()
-            for j, p in enumerate(preds):
-                temp_preds.append(preds[j][:decode_lengths[j]])  # remove pads
-            preds = temp_preds
-            hypos.extend(preds)
-
-            assert len(refs) == len(hypos)
-        # Calculate BLEU-4 scores
-        bleu4 = corpus_bleu(refs, hypos)
-
-        # Write to tensorboard
-        # niter = epoch
-        # writer.add_scalar('Valid/Loss', losses.avg, niter)
-        # writer.add_scalar('Valid/Top-5-Accuracy', top5accs.avg, niter)
-        # writer.add_scalar('Valid/BLEU-4', bleu4, niter)
-
         print(
-            '\n * LOSS - {loss.avg:.3f}, TOP-5 ACCURACY - {top5.avg:.3f}, BLEU-4 - {bleu}\n'.format(
+            '\n * LOSS - {loss.avg:.3f}, TOP-5 ACCURACY - {top5.avg:.3f}\n'.format(
                 loss=losses,
-                top5=top5accs,
-                bleu=bleu4))
-    return bleu4, top5accs.avg, losses.avg
+                top5=top5accs))
+    return top5accs.avg, losses.avg
 
 
 if __name__ == '__main__':

@@ -1,0 +1,6 @@
+/net/papilio/storage2/yhaoyuan/LibriSpeech_wav/dev/84/
+84-121123-0002_01.wav
+84-121123-0002_02.wav
+84-121123-0003_00.wav
+84-121123-0004_00.wav
+84-121123-0008_00.wav

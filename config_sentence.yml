@@ -39,11 +39,10 @@ i2u:
     print_freq: 100
     kl_weight: 0.01
     checkpoint_path: #"/net/papilio/storage2/yhaoyuan/transformer_I2U/saved_model/I2U/encodec1/bleu-4_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
-
-
+  
   model_params:
-    d_model: 1024 # 1024
-    nhead: 8 # 8
+    d_model: 2048 # 2048
+    nhead: 32 # 32
     num_layers: 6 # 6
     activation: "gelu"
     layer_norm_eps: 1.0e-5
@@ -51,9 +50,11 @@ i2u:
     norm_first : True
     dropout: 0.1
     image_backbone: "ResNet"
+    use_sentence_encoder: True
+    sentence_embed: 16
     fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
-    use_refine_encoder: True # True
-    use_global_feature: True # True
+    use_refine_encoder: False
+    use_global_feature: False
     AR: True
 
   refine_encoder_params:

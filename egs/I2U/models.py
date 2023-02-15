@@ -85,6 +85,7 @@ class TransformerLM(nn.Module):
         layer_norm_eps: float = 1e-5,
         batch_first: bool = True,
         norm_first: bool = True,
+        classifier_bias = True,
         ):
         super().__init__()
         self.vocab_size = vocab_size
@@ -105,7 +106,10 @@ class TransformerLM(nn.Module):
         #                                            activation=activation, batch_first=batch_first, norm_first=norm_first)
         # self.decoder = nn.TransformerDecoder(decoder_layer, num_layers, decoder_norm)
 
-        self.classifier = nn.Linear(d_model, vocab_size)
+        if classifier_bias:
+            self.classifier = nn.Linear(d_model, vocab_size)
+        else:
+            self.classifier = nn.Linear(d_model, vocab_size, bias=False)
         self.init_weights()
 
     def init_weights(self):
@@ -116,7 +120,7 @@ class TransformerLM(nn.Module):
         self.classifier.bias.data.fill_(0)
         self.classifier.weight.data.uniform_(-0.1, 0.1)
     
-    def forward(self, x: torch.Tensor, padding_mask: torch.BoolTensor, seq_len):
+    def forward(self, seq: torch.Tensor, padding_mask: torch.BoolTensor, seq_len):
         """
         padding_mask:
             True is pad
@@ -126,8 +130,17 @@ class TransformerLM(nn.Module):
 
         A LM only.
         """
-        x = self.embed(x)
+
+        seq_len, sort_ind = seq_len.sort(dim=0, descending=True)
+        encoded_seq = seq[sort_ind]
+        decode_lenths = (seq_len - 1).tolist()
+        max_length = max(decode_lenths)
+        seq = encoded_seq[:, :max_length]
+        padding_mask = padding_mask[:, :max_length]
+
+        x = self.embed(seq)
         x = self.pos_encoder(x)
+
         tgt_mask = self.generate_square_subsequent_mask(x.size(dim=1)).to(x.device)
         '''
             We're supposed to use "decoder" here, because we tried to decode and build an LM.
@@ -146,7 +159,7 @@ class TransformerLM(nn.Module):
             padding_mask,
         )
         out = self.classifier(x)
-        return out
+        return out, encoded_seq, decode_lenths, sort_ind
     
     @staticmethod
     def generate_square_subsequent_mask(sz: int) -> torch.Tensor:
@@ -248,7 +261,7 @@ class TransformerConditionedLM(TransformerLM):
         norm_first: bool = True,
         dropout: float = 0.1,
         image_backbone: str = "ResNet",
-        fine_tune_image_encoder: bool = True,
+        fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
         AR: bool = True
@@ -268,6 +281,8 @@ class TransformerConditionedLM(TransformerLM):
         self.AR = AR
         self.use_refine_encoder = use_refine_encoder
         self.use_global_feature = use_global_feature
+
+        self.LM_decoder = None
 
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
@@ -298,8 +313,8 @@ class TransformerConditionedLM(TransformerLM):
                 use_gx=self.use_global_feature
             )
 
-        self.embed = nn.Embedding(vocab_size, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
+        # self.embed = nn.Embedding(vocab_size, d_model)
+        # self.pos_encoder = PositionalEncoding(d_model)
 
         # Pre-fusion
         if self.use_global_feature:
@@ -317,7 +332,7 @@ class TransformerConditionedLM(TransformerLM):
                                                    activation=activation, batch_first=batch_first, norm_first=norm_first)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers, decoder_norm)
 
-        self.classifier = nn.Linear(d_model, vocab_size)
+        # self.classifier = nn.Linear(d_model, vocab_size)
         self.init_weights()
     
     def prefuse_gx(self, x, gx, seq_padding_mask):
@@ -539,7 +554,7 @@ class TransformerSentenceLM(TransformerConditionedLM):
             AR
         )
         self.use_sentence_encoder = use_sentence_encoder
-
+        self.LM_decoder = None
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
             self.image_encoder = DinoResEncoder_FixPooling(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
@@ -555,7 +570,13 @@ class TransformerSentenceLM(TransformerConditionedLM):
             return None
         
         if self.use_sentence_encoder:
-            self.sentence_encoder = self.LM_decoder
+            encoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+            # decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+
+            # Encoder
+            encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=32, dim_feedforward=4*d_model,
+                                                    activation=activation, batch_first=batch_first, norm_first=norm_first)
+            self.sentence_encoder = nn.TransformerEncoder(encoder_layer, 6, encoder_norm)
             self.mu = nn.Linear(d_model, sentence_embed)
             self.make_memory = nn.Linear(sentence_embed, d_model)
     
@@ -571,7 +592,12 @@ class TransformerSentenceLM(TransformerConditionedLM):
         eps = torch.randn_like(log_std)  # (batch, sentence_embed)
         z = mu + eps*log_std.exp()  # (batch, sentence_embed)
         z = self.make_memory(z)  # (batch, d_model)
-        return z
+        kl_loss = self.kl_loss(mu, log_std)
+        return z, kl_loss
+    
+    def kl_loss(self, mu: torch.Tensor, log_std: torch.Tensor):
+        var = log_std.exp()**2
+        return torch.sum(-1/2*torch.sum(1 + var.log() - mu**2 - var, dim=1), dim=0)
 
     def forward(self, imgs, seq, seq_padding_mask, seq_len, verbose = False):
         '''
@@ -604,7 +630,7 @@ class TransformerSentenceLM(TransformerConditionedLM):
         x = self.embed(seq)
         x = self.pos_encoder(x)
         if self.use_sentence_encoder:
-            z = self.encode_x(x, seq_len, seq_padding_mask, verbose)
+            z, kl_loss = self.encode_x(x, seq_len, seq_padding_mask, verbose)
             
         imgs, gx = self.image_encoder(imgs)
         if self.use_refine_encoder:
@@ -616,7 +642,7 @@ class TransformerSentenceLM(TransformerConditionedLM):
             z = torch.cat([imgs, z.unsqueeze(1)], dim = 1)
         else:
             z = imgs
-            
+
         decoder_output = self.decoder(
             tgt = decoder_input, 
             memory = z, 
@@ -627,4 +653,10 @@ class TransformerSentenceLM(TransformerConditionedLM):
         if self.use_global_feature:
             decoder_output = decoder_output[:, 1:, :] # the output lenth should be reduced
         decoder_output = self.classifier(decoder_output)
-        return decoder_output, encoded_seq, decode_lenths, sort_ind
+        '''TODO
+            Add kl_loss
+        '''
+        if self.use_sentence_encoder:
+            return decoder_output, encoded_seq, decode_lenths, sort_ind, kl_loss
+        else:
+            return decoder_output, encoded_seq, decode_lenths, sort_ind, 0
