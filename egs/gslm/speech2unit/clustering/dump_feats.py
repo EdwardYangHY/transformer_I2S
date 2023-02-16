@@ -9,7 +9,7 @@ import logging
 # from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
 #     get_and_dump_features,
 # )
-from speech2unit.pretrained.utils import (
+from gslm.speech2unit.pretrained.utils import (
     get_and_dump_features,
 )
 

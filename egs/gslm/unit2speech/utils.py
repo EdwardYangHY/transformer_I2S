@@ -9,8 +9,8 @@ import torch
 # from examples.textless_nlp.gslm.unit2speech.tacotron2.waveglow_denoiser import (
 #     Denoiser,
 # )
-from unit2speech.tacotron2.model import Tacotron2
-from unit2speech.tacotron2.waveglow_denoiser import (
+from gslm.unit2speech.tacotron2.model import Tacotron2
+from gslm.unit2speech.tacotron2.waveglow_denoiser import (
     Denoiser,
 )
 

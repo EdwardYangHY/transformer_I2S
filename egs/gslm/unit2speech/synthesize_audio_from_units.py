@@ -18,10 +18,10 @@ import soundfile as sf
 #     synthesize_audio,
 # )
 
-from unit2speech.tts_data import (
+from gslm.unit2speech.tts_data import (
     TacotronInputDataset,
 )
-from unit2speech.utils import (
+from gslm.unit2speech.utils import (
     load_quantized_audio_from_file,
     load_tacotron,
     load_waveglow,

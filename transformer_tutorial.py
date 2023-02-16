@@ -340,6 +340,9 @@ best_model = None
 
 for epoch in range(1, epochs + 1):
     epoch_start_time = time.time()
+    for tag, value in model.named_parameters():
+        tag = tag.replace('.', '/')
+        print(tag, value)
     train(model)
     val_loss = evaluate(model, val_data)
     val_ppl = math.exp(val_loss)

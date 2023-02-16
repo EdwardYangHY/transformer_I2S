@@ -265,7 +265,8 @@ class TransformerConditionedLM(TransformerLM):
         fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
-        AR: bool = True
+        AR: bool = True,
+        pretrained_LM: str = None,
         ):
         super().__init__(
             vocab_size,
@@ -283,8 +284,15 @@ class TransformerConditionedLM(TransformerLM):
         self.use_refine_encoder = use_refine_encoder
         self.use_global_feature = use_global_feature
 
-        self.LM_decoder = None
-
+        if pretrained_LM is not None:
+            self.use_LM = True
+            pretrained_LM = torch.load(pretrained_LM)
+            for k in self.LM_decoder.state_dict.keys():
+                self.LM_decoder[k] = pretrained_LM["LM_decoder." + k]
+                self.LM_decoder[k].requires_grad = False
+        else:
+            self.use_LM = False
+        
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
             self.image_encoder = DinoResEncoder(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
@@ -536,7 +544,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
         fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
-        AR: bool = True
+        AR: bool = True,
+        pretrained_LM: str = None,
         ):
         super().__init__(
             vocab_size,

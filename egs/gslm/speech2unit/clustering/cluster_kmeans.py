@@ -12,7 +12,11 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 
 import joblib
-from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
+# from examples.textless_nlp.gslm.speech2unit.pretrained.utils import (
+#     get_and_dump_features,
+#     get_features,
+# )
+from gslm.speech2unit.pretrained.utils import (
     get_and_dump_features,
     get_features,
 )

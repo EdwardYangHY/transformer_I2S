@@ -16,9 +16,9 @@ i2u:
   #### Used when training models
   captions_per_image: 1 
   min_word_freq: 1
-  # dir_name: SpokenCOCO_LibriSpeech
+  dir_name: SpokenCOCO_LibriSpeech
   # dir_name: SpokenCOCO
-  dir_name: LibriSpeech
+  # dir_name: LibriSpeech
   # dir_name: VC_5_captions
 
   #### Model params
@@ -27,7 +27,7 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 128 #32
+    batch_size: 64 # 128
     num_workers: 10
     grad_clip: 5.
     lr: 5.0e-4 # set to 4.0e-4 if scheduler = False
@@ -37,7 +37,7 @@ i2u:
     use_scheduler: True
     print_freq: 100
     kl_weight: 0.01
-    checkpoint_path: #"/net/papilio/storage2/yhaoyuan/transformer_I2U/saved_model/I2U/encodec1/bleu-4_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
+    checkpoint_path: #/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/23-02-15_13:49:28_sentence/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar
   
   model_params:
     d_model: 1024 # 2048
@@ -47,14 +47,6 @@ i2u:
     layer_norm_eps: 1.0e-5
     batch_first: True
     norm_first : True
-    # dropout: 0.1
-    # image_backbone: "ResNet"
-    # use_sentence_encoder: True
-    # sentence_embed: 16
-    # fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
-    # use_refine_encoder: False
-    # use_global_feature: False
-    # AR: True
 
   refine_encoder_params:
     input_resolution: 14

@@ -9,6 +9,7 @@ from models import TransformerLM, TransformerConditionedLM, TransformerSentenceL
 from datasets import *
 from utils_LM import *       #changed
 from nltk.translate.bleu_score import corpus_bleu
+# from torcheval.metrics.text import Perplexity
 # from torch.optim.lr_scheduler import LambdaLR
 import shutil
 
@@ -56,6 +57,7 @@ workers = train_params["num_workers"]  # for data-loading; right now, only 1 wor
 grad_clip = train_params["grad_clip"]  # clip gradients at an absolute value of
 best_bleu4 = 0.  # BLEU-4 score right now
 best_accuracy = 0.
+best_perplexity = 100000
 print_freq = train_params["print_freq"]  # print training/validation stats every __ batches
 # fine_tune_encoder = model_params["fine_tune_image_encoder"]  # fine-tune encoder?
 checkpoint = train_params["checkpoint_path"]  # path to checkpoint, None if none
@@ -88,7 +90,7 @@ def main():
     Training and validation.
     """
 
-    global best_bleu4, best_accuracy, checkpoint, start_epoch, data_name, word_map, device
+    global best_bleu4, best_accuracy, best_perplexity, checkpoint, start_epoch, data_name, word_map, device
 
     # Read word map
     word_map_file = os.path.join(data_folder, 'WORDMAP_' + data_name + '.json')
@@ -103,10 +105,16 @@ def main():
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
 
     # scheduel LR
-    if use_scheduler:
-        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
+    # if use_scheduler:
+    #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
     if checkpoint is not None:
-        model, optimizer, start_epoch, best_bleu4, best_accuracy = load_checkpoint(checkpoint, model, optimizer, device)
+        model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity = load_checkpoint(checkpoint, model, optimizer, device)
+    
+    if use_scheduler:
+        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch, d_model=model_params["d_model"])
+
+    # set schedulaer's epoch to match up with the current lr
+    # scheduler.last_epoch = start_epoch
     #optimizer = torch.optim.Adam(model.parameters(), decoder_lr)
     # Move to GPU, if available
     model.to(device)
@@ -143,27 +151,41 @@ def main():
         if use_scheduler:
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
             scheduler.step()
+        
         # validata
-        top5acc_avg, losses_avg = validate(
+        # top5acc_avg, losses_avg = validate(
+        #     val_loader, 
+        #     model, 
+        #     criterion
+        # )
+        # writer.add_scalar("Valid/Top5Accuracy", top5acc_avg, epoch)
+        # writer.add_scalar("Valid/Losses", losses_avg, epoch)
+
+        # add perplexity
+        pp, losses_avg = validate(
             val_loader, 
             model, 
             criterion
         )
-        writer.add_scalar("Valid/Top5Accuracy", top5acc_avg, epoch)
+        writer.add_scalar("Valid/Perplexity", pp, epoch)
         writer.add_scalar("Valid/Losses", losses_avg, epoch)
         # Judge model
-        recent_bleu4 = 0
-        is_best_accuracy = top5acc_avg > best_accuracy
+
+        # recent_bleu4 = 0
         # is_best_bleu4 = recent_bleu4 > best_bleu4
-        best_accuracy = max(top5acc_avg, best_accuracy)
+        # save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_bleu4, train_ID, device)
+
+        # is_best_accuracy = top5acc_avg > best_accuracy
+        # best_accuracy = max(top5acc_avg, best_accuracy)
+        # save_checkpoint("top5acc", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_accuracy, train_ID, device=None)
+        # print(f"Saving model in {time.time() - start} seconds")
+
+        is_best_perplexity = pp < best_perplexity
+        best_perplexity = min(pp, best_perplexity)
         start = time.time()
-        #save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_bleu4, train_ID, device)
-        save_checkpoint("top5acc", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_accuracy, train_ID, device=None)
+        
+        save_checkpoint("perplexity", data_name, epoch, model, optimizer, pp, is_best_perplexity, train_ID, device=None)
         print(f"Saving model in {time.time() - start} seconds")
-        is_best_accuracy = top5acc_avg > best_accuracy
-        best_accuracy = max(top5acc_avg, best_accuracy)
-        if is_best_accuracy:
-            pass
         
 
 def train(train_loader, model, criterion, optimizer, epoch, writer):
@@ -185,8 +207,17 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
     data_time = AverageMeter()  # data loading time
     losses = AverageMeter()  # loss (per word decoded)
     top5accs = AverageMeter()  # top5 accuracy
+    perplexity = AverageMeter()
 
     start = time.time()
+    
+    # This codes are for debug: check the model params works
+    # for tag, value in model.named_parameters():
+    #     tag = tag.replace('.', '/')
+    #     print(tag, value)
+
+    # add perplextiy
+    # pp = Perplexity()
 
     # Batches
     for i, (caps, caplens, padding_mask) in enumerate(train_loader):
@@ -210,6 +241,7 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
 
         # Remove timesteps that we didn't decode at, or are pads
         # pack_padded_sequence is an easy trick to do this
+        # pp.update(logits, targets)
         scores, _, _, _ = pack_padded_sequence(logits, decode_lengths, batch_first=True, enforce_sorted=False)
         targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
 
@@ -228,15 +260,21 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
         # this_accuracy = torch.sum(torch.argmax(scores, dim=1) == targets) / logits.size(dim=0)
         
         # Keep tracks of metrics
-        top5 = accuracy(scores, targets, 5)
+        # add Perplexity
+        pp = torch.exp(loss)
+        perplexity.update(pp, sum(decode_lengths))
+
+        # top5 = accuracy(scores, targets, 5)
         losses.update(loss.item(), sum(decode_lengths))
-        top5accs.update(top5, sum(decode_lengths))
+        # top5accs.update(top5, sum(decode_lengths))
+
         batch_time.update(time.time() - start)
 
         if i % 10 == 0:
             niter = epoch * len(train_loader) + i
             writer.add_scalar('Train/Loss', loss.data, niter)
-            writer.add_scalar('Train/Top-5-Accuracy', top5, niter)
+            #writer.add_scalar('Train/Avg_Perplexity', top5, niter)
+            writer.add_scalar('Train/Avg_Perplexity', pp, niter)
 
         start = time.time()
 
@@ -245,17 +283,21 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
                   'Batch Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data Load Time {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Top-5 Accuracy {top5.val:.3f} ({top5.avg:.3f})'.format(epoch, i, len(train_loader),
+                  'Perplexity {perplexity.val:.3f} ({perplexity.avg:.3f}) '.format(epoch, i, len(train_loader),
                                                                           batch_time=batch_time,
                                                                           data_time=data_time, loss=losses,
-                                                                          top5=top5accs))
+                                                                          perplexity=perplexity))
 
 def validate(val_loader, model, criterion): # -> bleu-4, accuracy
     model.eval()
     batch_time = AverageMeter()
     losses = AverageMeter()
     top5accs = AverageMeter()
+    perplexity = AverageMeter()
     start = time.time()
+
+    # add perplexity
+    # pp = Perplexity()
 
     with torch.no_grad():
         for i, (caps, caplens, padding_mask) in enumerate(val_loader):
@@ -280,9 +322,15 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
 
             # Keep track of current validations
             losses.update(loss.item(), sum(decode_lengths))
-            top5 = accuracy(scores, targets, 5)
-            top5accs.update(top5, sum(decode_lengths))
+            # top5 = accuracy(scores, targets, 5)
+            # top5accs.update(top5, sum(decode_lengths))
             batch_time.update(time.time() - start)
+
+            # add perplexity
+            # pp.update(scores, targets)
+            # pp_value = pp.compute()
+            pp = torch.exp(loss)
+            perplexity.update(pp, sum(decode_lengths))
             
             # niter = epoch * len(train_loader) + i
             # writer.add_scalar('Train/Loss', loss.data, niter)
@@ -294,13 +342,13 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
                 print('Validation: [{0}/{1}]\t'
                       'Batch Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Top-5 Accuracy {top5.val:.3f} ({top5.avg:.3f})\t'.format(i, len(val_loader), batch_time=batch_time,
-                                                                                loss=losses, top5=top5accs))
+                      'Perplexity {perplexity.val:.3f} ({perplexity.avg:.3f})\t'.format(i, len(val_loader), batch_time=batch_time,
+                                                                                loss=losses, perplexity=perplexity))
         print(
-            '\n * LOSS - {loss.avg:.3f}, TOP-5 ACCURACY - {top5.avg:.3f}\n'.format(
+            '\n * LOSS - {loss.avg:.3f}, PERPLEXITY - {perplexity.avg:.3f}\n'.format(
                 loss=losses,
-                top5=top5accs))
-    return top5accs.avg, losses.avg
+                perplexity=perplexity))
+    return perplexity.avg, losses.avg
 
 
 if __name__ == '__main__':

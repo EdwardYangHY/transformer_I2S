@@ -17,10 +17,10 @@ import joblib
 #     get_features,
 # )
 
-from speech2unit.clustering.utils import (
+from gslm.speech2unit.clustering.utils import (
     get_audio_files,
 )
-from speech2unit.pretrained.utils import (
+from gslm.speech2unit.pretrained.utils import (
     get_features,
 )
 

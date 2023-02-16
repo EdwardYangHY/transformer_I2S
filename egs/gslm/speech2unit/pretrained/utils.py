@@ -26,16 +26,16 @@ import tqdm
 # from examples.textless_nlp.gslm.speech2unit.pretrained.w2v2_feature_reader import (
 #     Wav2VecFeatureReader,
 # )
-from speech2unit.pretrained.cpc_feature_reader import (
+from gslm.speech2unit.pretrained.cpc_feature_reader import (
     CpcFeatureReader,
 )
-from speech2unit.pretrained.hubert_feature_reader import (
+from gslm.speech2unit.pretrained.hubert_feature_reader import (
     HubertFeatureReader,
 )
-from speech2unit.pretrained.logmel_feature_reader import (
+from gslm.speech2unit.pretrained.logmel_feature_reader import (
     LogMelFeatureReader,
 )
-from speech2unit.pretrained.w2v2_feature_reader import (
+from gslm.speech2unit.pretrained.w2v2_feature_reader import (
     Wav2VecFeatureReader,
 )
 

@@ -76,10 +76,11 @@ def clip_gradient(optimizer, grad_clip):
     """
     for group in optimizer.param_groups:
         for param in group['params']:
+            #print(param, param.grad)
             if param.grad is not None:
                 param.grad.data.clamp_(-grad_clip, grad_clip)
 
-def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_score, is_best, train_ID ,device=None):
+def save_checkpoint(metric, data_name, epoch, model, optimizer, perplexity, is_best, train_ID ,device=None):
     '''
         使用的scheduel， 是否需要存储其变化的lr？
     '''
@@ -87,8 +88,7 @@ def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'bleu-4': bleu4,
-        'accuracy': accuracy_score,
+        f'{metric}': perplexity,
     }
     filename = 'checkpoint_' + data_name + '.pth.tar'
     ### If use GPU, save differently
@@ -102,6 +102,7 @@ def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_
         torch.save(state, f'../../saved_model/LM/{dir_name}/{train_ID}/{metric}_BEST_' + filename)
 
 def load_checkpoint(checkpoint_path, model, optimizer, device):
+    # should be able to take different checkpoint
     checkpoint = checkpoint_path
     print(f"Loading checkpoint from {checkpoint}")
     # checkpoint = torch.load(checkpoint)
@@ -113,9 +114,19 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
         for k, v in state.items():
             if torch.is_tensor(v):
                 state[k] = v.to(device)
-    best_bleu4 = checkpoint["bleu-4"]
-    best_accuracy = checkpoint["accuracy"]
-    return model, optimizer, start_epoch, best_bleu4, best_accuracy
+    # best_bleu4 = checkpoint["bleu-4"]
+    # best_accuracy = checkpoint["accuracy"]
+    best_bleu4 = 0
+    best_accuracy = 0
+    best_perplexity = 0
+    for k, v in checkpoint.items():
+        if k == "bleu-4":
+            best_bleu4 = v
+        if k == "accuracy":
+            best_accuracy = v
+        if k == "perplexity":
+            best_perplexity = v
+    return model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity
 
 # def save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder, encoder_optimizer, decoder_optimizer,
 #                     bleu4, is_best, device=None):
@@ -220,12 +231,12 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
                       "The distribution of values may be incorrect.",
                       stacklevel=2)
 
-def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
+def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0, d_model: int = 2048):
     def lr_lambda(current_epoch: int):
         """
         Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
         """
         return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
 
-    return LambdaLR(optimizer, lr_lambda, verbose=True)
+    return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch, verbose=True)
 
