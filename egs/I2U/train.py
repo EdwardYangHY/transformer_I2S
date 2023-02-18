@@ -95,8 +95,6 @@ def main():
     # Initialize / load checkpoint
     model_params['vocab_size'] = len(word_map)
     model = TransformerConditionedLM(**model_params)
-    # model = TransformerSentenceLM(**model_params)
-
     # optimizer = torch.optim.Adam(model.parameters(), train_params["lr"])
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
 

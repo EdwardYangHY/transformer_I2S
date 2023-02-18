@@ -16,14 +16,20 @@ import yaml
 
 from custom_policy2 import CustomTD3PolicyCNN, CustomDDPG
 
-sys.path.append('../../egs/U2S/')
+
+sys.path.append("../..")
+import hifigan
+from hifigan.env import AttrDict
+from hifigan.models import Generator
+
+sys.path.append("../U2S")
 from hparams import create_hparams
 from train import load_model
 from text import text_to_sequence
 
-sys.path.insert(0, "../../egs/dino")
-sys.path.insert(0, "../../egs")
-from U2U.models import TransformerVAEwithCNN
+
+sys.path.append("../I2U")
+from models import TransformerSentenceLM
 
 # config path需要更改
 with open('../../config.yml') as yml:
@@ -35,7 +41,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # --------------------------------------------------------------------------------
 
 # I2U
-# TODO： Wordmap 位置需要更改
 word_map_path=config["i2u"]["wordmap"]
 # Load word map (word2ix)
 with open(word_map_path) as j:
@@ -44,21 +49,27 @@ rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
 special_words = {"<unk>", "<start>", "<end>", "<pad>"}
 
 # I2U
-# TODO: 模型位置需要更改
-sentence_encoder = TransformerVAEwithCNN(len(word_map), config["u2u"]["d_embed"])
-sentence_encoder.load_state_dict(torch.load(config["u2u"]["path2"]))
+model_path = config["i2u"]["model"]
+model_config = model_path[:-len(model_path.split("/")[-1])] + "config.yml"
+with open(model_config) as yml:
+    model_config = yaml.safe_load(yml)
+model_params = model_config["i2u"]["sentence_model_params"]
+model_params['vocab_size'] = len(word_map)
+sentence_encoder = TransformerSentenceLM(**model_params)
+trained_model = torch.load(model_path)
+state_dict = trained_model["model_state_dict"]
+sentence_encoder.load_state_dict(state_dict)
 sentence_encoder.eval()
 sentence_encoder.to(device)
 
 # --------------------------------------------------------------------------------
 
 # U2S
-# TODO: 调用匹配的tacotron2 和 HifiGAN 具体参考
 # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
-hparams = create_hparams()
-hparams.sampling_rate = 22050
 
 # tacotron2
+hparams = create_hparams()
+hparams.sampling_rate = 22050
 checkpoint_path = config["u2s"]["tacotron2"]
 tacotron2_model = load_model(hparams)
 tacotron2_model.load_state_dict(torch.load(checkpoint_path)['state_dict'])
@@ -67,39 +78,28 @@ tacotron2_model.cuda().eval()
 # --------------------------------------------------------------------------------
 
 # HiFi-GAN
-# TODO: 调用匹配的tacotron2 和 HifiGAN 具体参考
 # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
-sys.path.insert(0, '../../egs/hifi-gan')
 
-from models_hifi_gan import Generator
-from env import AttrDict
-
-def load_checkpoint(filepath, device):
-    assert os.path.isfile(filepath)
-    print("Loading '{}'".format(filepath))
-    checkpoint_dict = torch.load(filepath, map_location=device)
-    print("Complete.")
-    return checkpoint_dict
-
-config_file = "../../model/UNIVERSAL_V1/config.json"
-checkpoint_file = "../../model/UNIVERSAL_V1/g_02500000"
-
+checkpoint_file = config["u2s"]['hifigan']
+config_file = os.path.join(os.path.split(checkpoint_file)[0], 'config.json')
 with open(config_file) as f:
-    data = f.read()
+        data = f.read()
 
+global h
 json_config = json.loads(data)
 h = AttrDict(json_config)
-
 generator = Generator(h).to(device)
-state_dict_g = load_checkpoint(checkpoint_file, device)
-generator.load_state_dict(state_dict_g['generator'])
+assert os.path.isfile(checkpoint_file)
+checkpoint_dict = torch.load(checkpoint_file, map_location=device)
+generator.load_state_dict(checkpoint_dict['generator'])
+generator.eval()
+generator.remove_weight_norm()
 
 # --------------------------------------------------------------------------------
 
 # S2T
-# TODO: 调用对应的， tune的ASR
-processor = Wav2Vec2Processor.from_pretrained(config["asr"]["path"])
-asr_model = Wav2Vec2ForCTC.from_pretrained(config["asr"]["path"]).to(device)
+processor = Wav2Vec2Processor.from_pretrained(config["asr"]["model_path"])
+asr_model = Wav2Vec2ForCTC.from_pretrained(config["asr"]["model_path"]).to(device)
 
 # --------------------------------------------------------------------------------
 

@@ -287,7 +287,7 @@ class TransformerConditionedLM(TransformerLM):
 
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
-            self.image_encoder = DinoResEncoder(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
+            self.image_encoder = DinoResEncoder(encoded_image_size=refine_encoder_params["input_resolution"] , embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
             # self.image_encoder = DinoResEncoder_NoPooling(embed_dim=d_model) 
             self.image_encoder.fine_tune(self.fine_tune_image_encoder)
         elif image_backbone.upper() == "VIT":
@@ -558,8 +558,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
         self.LM_decoder = None
         # Get Image backbone
         if image_backbone.upper() == "RESNET":
-            self.image_encoder = DinoResEncoder_FixPooling(embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
-            # self.image_encoder = DinoResEncoder_NoPooling(embed_dim=d_model) 
+            # self.image_encoder = DinoResEncoder_FixPooling(embed_dim=d_model)  #
+            self.image_encoder = DinoResEncoder(encoded_image_size=7, embed_dim=d_model)
             self.image_encoder.fine_tune(self.fine_tune_image_encoder)
         elif image_backbone.upper() == "VIT":
             print("Unimplemented Yet")
@@ -661,3 +661,104 @@ class TransformerSentenceLM(TransformerConditionedLM):
             return decoder_output, encoded_seq, decode_lenths, sort_ind, kl_loss
         else:
             return decoder_output, encoded_seq, decode_lenths, sort_ind, 0
+
+    @torch.inference_mode()
+    def decode(
+        self,
+        start_unit: int,
+        end_unit: int,
+        action: torch.Tensor = None,
+        x=None,
+        padding_mask=None,
+        seq_len=None,
+        image=None,
+        max_len: int = 100,
+        beam_size: int = 50,
+    ):
+        """
+        from https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/eval.py
+        """
+        self.eval()
+        if action is not None:
+            if action.size(-1) > 49*2048:
+                fmap = action[:, :49*2048].view(1, 49, 2048)
+                embed = action[:, 49*2048:]
+                embed = self.make_memory(embed)
+                embed = embed.unsqueeze(1)
+                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+                m = m.expand(beam_size, 50, 2048)
+            else:
+                fmap = action[:, :49*2048].view(1, 49, 2048)
+                m = fmap.expand(beam_size, 49, 2048)
+        elif x is None:
+            imgs, gx = self.image_encoder(imgs)
+            m = imgs  # (1, d_model)
+            m = m.expand(beam_size, 49, 2048)
+
+        k = beam_size
+        # Tensor to store top k previous words at each step; now they're just <start>
+        k_prev_words = torch.LongTensor([[start_unit]] * k).to(m.device)  # (k, 1)
+        # Tensor to store top k sequences; now they're just <start>
+        seqs = k_prev_words  # (k, 1)
+        # Tensor to store top k sequences' scores; now they're just 0
+        top_k_scores = torch.zeros(k, 1).to(m.device)  # (k, 1)
+        # Lists to store completed sequences and scores
+        complete_seqs = list()
+        complete_seqs_scores = list()
+        # Start decoding
+        step = 1
+        # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+        while True:
+            x = self.embed(seqs)
+            x = self.pos_encoder(x)
+
+            x, pad_mask, attn_mask = self.prefuse_gx(x, gx=None, seq_padding_mask = None)
+
+            x = self.decoder(
+                tgt = x, 
+                memory = m, 
+                tgt_mask = attn_mask, 
+                tgt_key_padding_mask = pad_mask
+                )
+            
+            scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
+            scores = F.log_softmax(scores, dim=1)
+            # Add
+            scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
+            # For the first step, all k points will have the same scores (since same k previous words, h, c)
+            if step == 1:
+                top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
+            else:
+                # Unroll and find top scores, and their unrolled indices
+                top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
+            # Convert unrolled indices to actual indices of scores
+            prev_word_inds = torch.div(top_k_words, self.vocab_size, rounding_mode="floor")  # (s)
+            next_word_inds = top_k_words % self.vocab_size  # (s)
+            # Add new words to sequences
+            seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
+            # Which sequences are incomplete (didn't reach <end>)?
+            incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if next_word != end_unit]
+            complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
+            # Set aside complete sequences
+            if len(complete_inds) > 0:
+                complete_seqs.extend(seqs[complete_inds].tolist())
+                complete_seqs_scores.extend(top_k_scores[complete_inds])
+            k -= len(complete_inds)  # reduce beam length accordingly
+            # Proceed with incomplete sequences
+            if k == 0:
+                break
+            seqs = seqs[incomplete_inds]
+            m = m[prev_word_inds[incomplete_inds]]
+            top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
+            k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
+            # Break if things have been going on too long
+            if step > max_len:
+                break
+            step += 1
+        
+        if len(complete_seqs_scores) != 0:
+            i = complete_seqs_scores.index(max(complete_seqs_scores))
+            seq = complete_seqs[i]
+        else:
+            seq = []
+        return seq

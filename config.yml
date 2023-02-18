@@ -8,11 +8,31 @@ data:
   max_len: 150
   image_resolution: 256
 
+u2s:
+  tacotron2: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
+  # waveglow: "../../model/waveglow_256channels_universal_v5.pt"
+  
+  batch_size: 64
+  # filelists_train: "../../data/U2S/filelists_VC_5_captions/ljs_audio_text_train_filelist.txt"
+  # filelists_val: "../../data/U2S/filelists_VC_5_captions/ljs_audio_text_val_filelist.txt"
+  # filelists_train: "../../data/U2S/filelists_Origin_5_captions/ljs_audio_text_train_filelist.txt"
+  # filelists_val: "../../data/U2S/filelists_Origin_5_captions/ljs_audio_text_val_filelist.txt"
+  filelists_train: "../../data/U2S/filelists_VCTK/ljs_audio_text_train_filelist.txt"
+  filelists_val: "../../data/U2S/filelists_VCTK/ljs_audio_text_val_filelist.txt"
+  
+  hifigan: "../../hifigan/FOOD_V1_24K_Speaker3/generator_v1_24k"
+
+asr:
+  model_path: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/ASR/wav2vec2-base-tuned/checkpoint-3000"
+
 i2u:
   #### Used when inferencing
-  model: "../../model/I2U/trimmed_mapping_SpeakerALL_Color/BEST_checkpoint_coco_2_cap_per_img_1_min_word_freq_gpu.pth.tar" # leave out colors
-  wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
-  
+  # model: "../../model/I2U/trimmed_mapping_SpeakerALL_Color/BEST_checkpoint_coco_2_cap_per_img_1_min_word_freq_gpu.pth.tar" # leave out colors
+  # wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
+  model: "../../saved_model/I2U/VC_5_captions/23-02-10_20:10:09_sentence/bleu-4_BEST_checkpoint_coco_5_cap_per_img_1_min_word_freq_gpu.pth.tar"
+  # model_config: "../../saved_model/I2U/VC_5_captions/23-02-10_20:10:09_sentence/config.yml"
+  wordmap: "../../data/processed/VC_5_captions/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
+
   #### Used when training models
   captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   #captions_per_image: 1 # change it after LJS U2U
@@ -28,10 +48,10 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 32
-    num_workers: 1
+    batch_size: 64
+    num_workers: 10
     grad_clip: 5.
-    lr: 1.0e-1 # set to 4.0e-4 if scheduler = False
+    lr: 1.0e-2 # set to 4.0e-4 if scheduler = False
     optimizer: "Adam" # [Adam, AdamW]
     epoch: 200
     warmup_epoch: 20 # only make sense when use_scheduler = True
@@ -43,8 +63,8 @@ i2u:
 
   model_params:
     d_model: 1024 # 1024
-    nhead: 8 # 8
-    num_layers: 6 # 6
+    nhead: 16 # 8
+    num_layers: 12 # 6
     activation: "gelu"
     layer_norm_eps: 1.0e-5
     batch_first: True
@@ -57,11 +77,26 @@ i2u:
     AR: True
 
   refine_encoder_params:
-    input_resolution: 14
+    input_resolution: 7 # 14
     depth: 3
     num_heads: 8
-    window_size: 14  # =14 退化为普通MSA结构
+    window_size: 7  # =14 退化为普通MSA结构
     shift_size: 0    # =0  无SW-MSA，仅W-MSA
     mlp_ratio: 4
 
 # 存储模型请将config一起存储
+rl:
+  learning_rate: 0.0001
+  buffer_size: 1000
+  learning_starts: 0
+  batch_size: 32
+  total_timesteps_dqn: 50000
+  total_timesteps_ddpg: 50000
+  eval_freq_dqn: 200
+  eval_freq_ddpg: 200
+  n_eval_episodes_dqn: 1000
+  n_eval_episodes_ddpg: 1000
+  action_noise_sigma: 0.1
+  eval_log_path_dqn: "./logs_dqn/"
+  eval_log_path_ddpg: "./logs_ddpg/"
+  incremental: false
