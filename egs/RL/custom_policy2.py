@@ -523,7 +523,8 @@ class CustomDDPG(TD3):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             device=device,
-            create_eval_env=create_eval_env,
+            # '''Removed in version 1.7.0'''
+            # create_eval_env=create_eval_env, 
             seed=seed,
             optimize_memory_usage=optimize_memory_usage,
             # Remove all tricks from TD3 to obtain DDPG:
@@ -558,14 +559,15 @@ class CustomDDPG(TD3):
             total_timesteps=total_timesteps,
             callback=callback,
             log_interval=log_interval,
-            eval_env=eval_env,
-            eval_freq=eval_freq,
-            n_eval_episodes=n_eval_episodes,
+            #'''Removed in version 1.7.0'''
+            # eval_env=eval_env,
+            # eval_freq=eval_freq,
+            # n_eval_episodes=n_eval_episodes,
             tb_log_name=tb_log_name,
-            eval_log_path=eval_log_path,
+            #'''Removed in version 1.7.0'''
+            # eval_log_path=eval_log_path,
             reset_num_timesteps=reset_num_timesteps,
         )
-    
     def _sample_action(
         self,
         learning_starts: int,

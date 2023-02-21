@@ -7,13 +7,14 @@ import sys
 import gym
 import numpy as np
 from PIL import Image
+from imageio import imread
 import resampy
 from stable_baselines3.common.noise import NormalActionNoise
 import torch
 from torchvision import transforms
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import yaml
-
+from tqdm import tqdm
 from custom_policy2 import CustomTD3PolicyCNN, CustomDDPG
 
 
@@ -37,10 +38,12 @@ with open('../../config.yml') as yml:
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+is_debug = True if sys.gettrace() else False
 
 # --------------------------------------------------------------------------------
 
 # I2U
+print("Load I2U model")
 word_map_path=config["i2u"]["wordmap"]
 # Load word map (word2ix)
 with open(word_map_path) as j:
@@ -54,18 +57,28 @@ model_config = model_path[:-len(model_path.split("/")[-1])] + "config.yml"
 with open(model_config) as yml:
     model_config = yaml.safe_load(yml)
 model_params = model_config["i2u"]["sentence_model_params"]
+if "u2u" not in config.keys():
+    config["u2u"] = {}
+    config["u2u"]["d_embed"] = model_params["sentence_embed"]
 model_params['vocab_size'] = len(word_map)
+img_refine_params = model_config["i2u"]["refine_encoder_params"]
+img_refine_params["input_resolution"]=7
+assert img_refine_params["input_resolution"]==7
+model_params["refine_encoder_params"] = img_refine_params
 sentence_encoder = TransformerSentenceLM(**model_params)
 trained_model = torch.load(model_path)
 state_dict = trained_model["model_state_dict"]
 sentence_encoder.load_state_dict(state_dict)
 sentence_encoder.eval()
 sentence_encoder.to(device)
+print("Load I2U model complete.")
 
 # --------------------------------------------------------------------------------
 
 # U2S
 # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
+
+print("Load U2S model")
 
 # tacotron2
 hparams = create_hparams()
@@ -94,21 +107,23 @@ checkpoint_dict = torch.load(checkpoint_file, map_location=device)
 generator.load_state_dict(checkpoint_dict['generator'])
 generator.eval()
 generator.remove_weight_norm()
+print("Load U2S model complete.")
 
 # --------------------------------------------------------------------------------
-
+print("Load ASR model")
 # S2T
 processor = Wav2Vec2Processor.from_pretrained(config["asr"]["model_path"])
 asr_model = Wav2Vec2ForCTC.from_pretrained(config["asr"]["model_path"]).to(device)
-
+print("Load ASR model complete.")
 # --------------------------------------------------------------------------------
 
 # 同样的模型结构应该不需要调整
 # TODO: 测试： image + sentence embedding 能不能解码出 seq。
+# 可以解码
 
 def i2u2s2t(action):
     action = torch.from_numpy(action).unsqueeze(0).to(device)
-    seq = sentence_encoder.decode(word_map['<start>'], word_map['<end>'], action=action, beam_size=5)
+    seq = sentence_encoder.decode(word_map['<start>'], word_map['<end>'], action=action, max_len=130, beam_size=5)
     words = [rev_word_map[ind] for ind in seq if rev_word_map[ind] not in special_words]
     sequence = np.array(text_to_sequence(' '.join(words), ['english_cleaners']))[None, :]
     sequence = torch.autograd.Variable(torch.from_numpy(sequence)).cuda().long()
@@ -118,7 +133,7 @@ def i2u2s2t(action):
             y_g_hat = generator(mel_outputs_postnet)
             audio = y_g_hat.squeeze()
         audio = audio.cpu().numpy().astype(np.float64)
-        audio = resampy.resample(audio, 22050, 16000)
+        # audio = resampy.resample(audio, 22050, 16000)
         # s2t
         input_values = processor(audio, sampling_rate=16000, return_tensors="pt").input_values.float()
         logits = asr_model(input_values.to(device)).logits
@@ -128,6 +143,77 @@ def i2u2s2t(action):
         transcription = ""
         print(e, flush=True)
     return transcription
+# --------------------------------------------------------------------------------
+
+name_dict={
+    'apple': ['apple','apples'],
+    'banana': ['banana','bananas'],
+    'carrot': ['carrot','carrots'],
+    'grape': ['grape','grapes'],
+    'cucumber': ['cucumber','cucumbers'],
+    'egg': ['egg','eggs'],
+    'eggplant': ['eggplant','eggplants'],
+    'greenpepper': ['pepper','peppers','green pepper','green peppers'],
+    'pea': ['pea','peas','green pea','green peas'],
+    'kiwi': ['kiwi','kiwi fruit','kiwi fruits'],
+    'lemon': ['lemon','lemons'],
+    'onion': ['onion','onions'],
+    'orange': ['orange','oranges'],
+    'potatoes': ['potato','potatoes'],
+    'bread': ['bread', 'sliced bread'],
+    'avocado': ['avocado','avocados'],
+    'strawberry': ['strawberry','strawberries'],
+    'sweetpotato': ['sweet','sweet potato','sweet potatoes'],
+    'tomato': ['tomato','tomatoes'],
+    'turnip': ['radish','radishes','white radish','white radishes']
+    #'orange02': '/orange02'
+}
+color_dict = {
+    'wh': 'white',
+    'br': 'brown',
+    'bl': 'blue'
+}
+number_dict = {
+    1: 'one',
+    2: 'two',
+    3: 'three'
+}
+
+def get_image_info(image_path):
+    info=image_path.split("/")[8]
+    name=info.split("_")[0]
+    if name=="orange":
+        color=info.split("_")[1]
+        number=info.split("_")[2]
+    else:
+        color=info.split("_")[1][0:-1]
+        number=info.split("_")[1][-1]
+    return name, color, number
+
+def judge_ans(transcription, img_path):
+    ans = transcription.split(" ")
+    # print(ans)
+    right_name = False
+    right_color = False
+    right_number = False
+    right_ans = False
+
+    name, color, number = get_image_info(img_path)
+
+    # 分开两个词 怎么办
+    for an in ans:
+        if an in name_dict[name]:
+            # print("Right name.")
+            right_name = True
+        if an == color_dict[color]:
+            # print("Right color.")
+            right_color = True
+        if an in number_dict[int(number)]:
+            # print("Right number.")
+            right_number = True
+    if right_name and right_color and right_number:
+        right_ans = True
+    return right_ans, right_name
 
 # --------------------------------------------------------------------------------
 
@@ -140,12 +226,22 @@ class SpoLacq(gym.Env):
         rewards: list = [1, 0, 0],
     ):
         super().__init__()
-        self.action_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(d_img_features+d_embed+2,))
+        # self.action_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(d_img_features+d_embed+2,))
+        # self.observation_space = gym.spaces.Dict(
+        #     dict(
+        #         state=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float64),
+        #         leftimage=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3, 224, 224), dtype=np.float64),
+        #         rightimage=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3, 224, 224), dtype=np.float64),
+        #     )
+        # )
+
+        # Version 1.7.0 don't take inf as the upper/lower bound
+        self.action_space = gym.spaces.Box(low=-100, high=100, shape=(d_img_features+d_embed+2,))
         self.observation_space = gym.spaces.Dict(
             dict(
-                state=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float64),
-                leftimage=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3, 224, 224), dtype=np.float64),
-                rightimage=gym.spaces.Box(low=-np.inf, high=np.inf, shape=(3, 224, 224), dtype=np.float64),
+                state=gym.spaces.Box(low=-100, high=100, shape=(3,), dtype=np.float64),
+                leftimage=gym.spaces.Box(low=-100, high=100, shape=(3, 224, 224), dtype=np.float64),
+                rightimage=gym.spaces.Box(low=-100, high=100, shape=(3, 224, 224), dtype=np.float64),
             )
         )
         
@@ -164,9 +260,17 @@ class SpoLacq(gym.Env):
     
     def make_food_storage(self, img_list: list):
         self.food_storage = list()
-        for img_path in img_list:
-            image = Image.open(img_path)
-            image = np.asarray(image)
+        for img_path in tqdm(img_list):
+            img = imread(img_path)
+            if len(img.shape) == 2:
+                img = img[:, :, np.newaxis]
+                img = np.concatenate([img, img, img], axis=2)
+            # img = imresize(img, (256, 256))
+            resolution = 224
+            image = np.array(Image.fromarray(img).resize((resolution, resolution)))
+
+            # image = Image.open(img_path)
+            # image = np.asarray(image)
             self.food_storage.append(image)
     
     def get_transformed_image(self, data_num):
@@ -228,31 +332,50 @@ class SpoLacq(gym.Env):
 
         # TODO: 改变 transcription的judge方式，参考：
         # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
+
         if transcription[:7] == "I WANT ":
             self.utt_rewards.append(1)
         else:
             self.utt_rewards.append(0)
 
         img_path = self.img_list[ans_num]
-        transcription_ans = img_path.split("/")[5].replace("_", " ").upper()
-        preposition = 'an' if transcription_ans[0] in ['A', 'O', 'E'] else 'a'
+        right_ans, right_name = judge_ans(transcription, img_path)
         print(
             self.num_step,
             self.img_list[self.data_num1].split("/")[5],
             self.img_list[self.data_num2].split("/")[5],
-            f"ANSWER: {transcription_ans}",
+            f"ANSWER: {get_image_info(img_path)}",
             flush=True,
             )
-        if transcription_ans in transcription:
-            if f"i want {preposition} {transcription_ans}".upper() == transcription:
-                print(self.rewards[0], self.num_step, transcription, flush=True)
-                return self.rewards[0]
-            else:
-                print(self.rewards[1], self.num_step, transcription, flush=True)
-                return self.rewards[1]
+        if right_ans:
+            print(self.rewards[0], self.num_step, transcription, flush=True)
+            return self.rewards[0]
+        elif right_name:
+            print(self.rewards[1], self.num_step, transcription, flush=True)
+            return self.rewards[1]
         else:
             print(self.rewards[2], self.num_step, transcription, flush=True)
             return self.rewards[2]
+
+        # transcription_ans = img_path.split("/")[5].replace("_", " ").upper()
+        # preposition = 'an' if transcription_ans[0] in ['A', 'O', 'E'] else 'a'
+        # print(
+        #     self.num_step,
+        #     self.img_list[self.data_num1].split("/")[5],
+        #     self.img_list[self.data_num2].split("/")[5],
+        #     f"ANSWER: {transcription_ans}",
+        #     flush=True,
+        #     )
+        # if transcription_ans in transcription:
+        #     if f"i want {preposition} {transcription_ans}".upper() == transcription:
+        #         print(self.rewards[0], self.num_step, transcription, flush=True)
+        #         return self.rewards[0]
+        #     else:
+        #         print(self.rewards[1], self.num_step, transcription, flush=True)
+        #         return self.rewards[1]
+        # else:
+        #     print(self.rewards[2], self.num_step, transcription, flush=True)
+        #     return self.rewards[2]
         
         # ---------------------------
     
@@ -288,30 +411,42 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------------
     # TODO: change the file lists by new divided json files.
     # see /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json
-    foods_incremental = [
-        'lemon',
-        'onion',
-        'orange',
-        'potato',
-        'sliced_bread',
-        'small_cabbage',
-        'strawberry',
-        'sweet_potato',
-        'tomato',
-        'white_radish',
-    ]
+    img_data_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json"
+    with open(img_data_path, "r") as f:
+        img_data = json.load(f)
+    img_list_train = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["train"]]
+    img_list_eval = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["val"]]
+    img_list_test = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["test"]]
+    
+    if is_debug:
+        img_list_train = img_list_train[:100]
+        img_list_eval = img_list_eval[:10]
+        img_list_test = img_list_test[:10]
+    
+    # foods_incremental = [
+    #     'lemon',
+    #     'onion',
+    #     'orange',
+    #     'potato',
+    #     'sliced_bread',
+    #     'small_cabbage',
+    #     'strawberry',
+    #     'sweet_potato',
+    #     'tomato',
+    #     'white_radish',
+    # ]
 
-    img_list_train = glob('../../data/I2U/image/*/train_number*/*.jpg')
-    img_list_eval = glob('../../data/I2U/image/*/test_number[12]/*.jpg')
-    img_list_test = glob('../../data/I2U/image/*/test_number3/*.jpg')
+    # img_list_train = glob('../../data/I2U/image/*/train_number*/*.jpg')
+    # img_list_eval = glob('../../data/I2U/image/*/test_number[12]/*.jpg')
+    # img_list_test = glob('../../data/I2U/image/*/test_number3/*.jpg')
 
-    if config["rl"]["incremental"]:
-        img_list_train = [path for path in img_list_train if path.split("/")[5] not in foods_incremental]
-        img_list_eval = [path for path in img_list_eval if path.split("/")[5] not in foods_incremental]
-        img_list_test = [path for path in img_list_test if path.split("/")[5] not in foods_incremental]
+    # if config["rl"]["incremental"]:
+    #     img_list_train = [path for path in img_list_train if path.split("/")[5] not in foods_incremental]
+    #     img_list_eval = [path for path in img_list_eval if path.split("/")[5] not in foods_incremental]
+    #     img_list_test = [path for path in img_list_test if path.split("/")[5] not in foods_incremental]
 
     # --------------------------------------------------------------------------------
-
+    print("Prepare enviroment")
     env = SpoLacq(
         d_embed=config["u2u"]["d_embed"],
         d_img_features=49*2048,
@@ -332,7 +467,8 @@ if __name__ == "__main__":
         img_list=img_list_test,
         rewards=[1, 0, 0],
         )
-
+    print("Prepare enviroment complete.")
+    print("Set up agent.")
     model2 = CustomDDPG(
         CustomTD3PolicyCNN,
         env,
@@ -354,13 +490,17 @@ if __name__ == "__main__":
     # model2.load_param_from_ddpg(CustomDDPG.load("./logs_ddpg_without_embed_icassp/best_model.zip"))
     # model2.fix_param()
     model2.use_embed()
+    print("Set up agent complete.")
 
+    print("Start Learning.")
     model2.learn(
         total_timesteps=100000,
-        eval_env=eval_env,
-        eval_freq=1000,
-        n_eval_episodes=config["rl"]["n_eval_episodes_ddpg"],
-        eval_log_path="./logs_ddpg_embed_icassp/",
+        # total_timesteps=100,
+        #'''Removed in version 1.7.0'''
+        # eval_env=eval_env,
+        # eval_freq=1000,
+        # n_eval_episodes=config["rl"]["n_eval_episodes_ddpg"],
+        # eval_log_path="./logs_ddpg_embed_icassp/",
         )
     
-    eval_env.save_rewards("./logs_ddpg_embed_icassp/rl_accuracy.npy")
+    env.save_rewards("./spolacq_tmplog/rl_accuracy.npy")
