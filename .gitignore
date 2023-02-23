@@ -3,6 +3,7 @@
 
 FashionMNIST/
 egs/dino/
+egs/RL/spolacq*/
 egs/RL*/spolacq*/
 egs/RL*/logs*/
 egs/*/__pycache__
