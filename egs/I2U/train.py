@@ -94,6 +94,10 @@ def main():
 
     # Initialize / load checkpoint
     model_params['vocab_size'] = len(word_map)
+    # ----------------------------------------------------------------
+    img_refine_params = config["i2u"]["refine_encoder_params"]
+    model_params["refine_encoder_params"] = img_refine_params
+    # ----------------------------------------------------------------
     model = TransformerConditionedLM(**model_params)
     # optimizer = torch.optim.Adam(model.parameters(), train_params["lr"])
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
@@ -103,6 +107,10 @@ def main():
         scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
     if checkpoint is not None:
         model, optimizer, start_epoch, best_bleu4, best_accuracy = load_checkpoint(checkpoint, model, optimizer, device)
+    
+    # if use_scheduler:
+    #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch, d_model=model_params["d_model"])
+    
     #optimizer = torch.optim.Adam(model.parameters(), decoder_lr)
     # Move to GPU, if available
     model.to(device)

@@ -1,5 +1,9 @@
 # Ignore:
 # data/
+
 FashionMNIST/
 egs/dino/
+egs/RL*/spolacq*/
+egs/RL*/logs*/
+egs/*/__pycache__
 hifigan/

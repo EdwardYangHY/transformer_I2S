@@ -6,7 +6,7 @@ data:
   valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
   test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
   max_len: 150
-  image_resolution: 256
+  # image_resolution: 256
 
 i2u:
   #### Used when inferencing
@@ -20,7 +20,7 @@ i2u:
   # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
   # dir_name: "encodec1"
   # dir_name: "trimmed_mapping_SpeakerALL_Color"
-  dir_name: VC_5_captions
+  dir_name: VC_5_captions_224
 
   #### Model params
   # batch_size: 32
@@ -28,10 +28,10 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 32
+    batch_size: 64
     num_workers: 1
     grad_clip: 5.
-    lr: 1.0e-1 # set to 4.0e-4 if scheduler = False
+    lr: 1.0e-2 # set to 4.0e-4 if scheduler = False
     optimizer: "Adam" # [Adam, AdamW]
     epoch: 200
     warmup_epoch: 20 # only make sense when use_scheduler = True
@@ -41,27 +41,34 @@ i2u:
     checkpoint_path: #"/net/papilio/storage2/yhaoyuan/transformer_I2U/saved_model/I2U/encodec1/bleu-4_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
   
   model_params:
-    d_model: 2048 # 2048
-    nhead: 32 # 32
-    num_layers: 6 # 6
+    d_model: 1024 # 2048
+    nhead: 16 # 32
+    num_layers: 12 # 6
     activation: "gelu"
     layer_norm_eps: 1.0e-5
     batch_first: True
     norm_first : True
     dropout: 0.1
     image_backbone: "ResNet"
-    use_sentence_encoder: True
-    sentence_embed: 16
+    use_sentence_encoder: False
+    sentence_embed: 8 #16
     fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
     use_refine_encoder: False
     use_global_feature: False
     AR: True
 
+  # refine_encoder_params:
+  #   input_resolution: 14
+  #   depth: 3
+  #   num_heads: 8
+  #   window_size: 14  # =14 退化为普通MSA结构
+  #   shift_size: 0    # =0  无SW-MSA，仅W-MSA
+  #   mlp_ratio: 4
   refine_encoder_params:
-    input_resolution: 14
+    input_resolution: 7 # 14
     depth: 3
     num_heads: 8
-    window_size: 14  # =14 退化为普通MSA结构
+    window_size: 7  # =14 退化为普通MSA结构
     shift_size: 0    # =0  无SW-MSA，仅W-MSA
     mlp_ratio: 4
 

@@ -148,7 +148,7 @@ class CustomMu(nn.Module):
         self.fc3 = nn.Linear(net_arch[1][0], net_arch[1][1])
         self.fc4 = nn.Linear(net_arch[1][1], net_arch[1][2], bias=False)
         self.activation_fn = activation_fn()
-        self.soft_image_features = True
+        self.soft_image_features = False # True
         self.use_embed = False
         self.layernorm = nn.LayerNorm(net_arch[1][2])
 

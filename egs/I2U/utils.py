@@ -336,3 +336,12 @@ def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048)
 
     return LambdaLR(optimizer, lr_lambda, verbose=True)
 
+# def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0, d_model: int = 2048):
+#     def lr_lambda(current_epoch: int):
+#         """
+#         Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
+#         """
+#         return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
+
+#     return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch, verbose=True)
+

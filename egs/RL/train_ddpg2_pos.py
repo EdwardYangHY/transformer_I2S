@@ -561,7 +561,7 @@ if __name__ == "__main__":
 
     print("Start Learning.")
     model2.learn(
-        total_timesteps=100000,
+        total_timesteps=50000,
         # total_timesteps=100,
         #'''Removed in version 1.7.0'''
         # eval_env=eval_env,

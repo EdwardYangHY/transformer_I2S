@@ -48,11 +48,18 @@ i2u:
     batch_first: True
     norm_first : True
 
+  # refine_encoder_params:
+  #   input_resolution: 14
+  #   depth: 3
+  #   num_heads: 8
+  #   window_size: 14  # =14 退化为普通MSA结构
+  #   shift_size: 0    # =0  无SW-MSA，仅W-MSA
+  #   mlp_ratio: 4
   refine_encoder_params:
-    input_resolution: 14
+    input_resolution: 7 # 14
     depth: 3
     num_heads: 8
-    window_size: 14  # =14 退化为普通MSA结构
+    window_size: 7  # =14 退化为普通MSA结构
     shift_size: 0    # =0  无SW-MSA，仅W-MSA
     mlp_ratio: 4
 

@@ -30,7 +30,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from image_encoder import DinoResEncoder, DinoResEncoder_FixPooling, ViTEncoder
+from image_encoder import DinoResEncoder, ViTEncoder
 from PureT_encoder import Encoder as refine_encoder
 
 import yaml
@@ -39,7 +39,7 @@ with open('../../config.yml', 'r') as yml:
 
 global MAX_LEN, BATCH_FIRST
 MAX_LEN = int(config['data']['max_len']) + 2
-refine_encoder_params = config["i2u"]["refine_encoder_params"]
+# config_refine_encoder_params = config["i2u"]["refine_encoder_params"]
 
 class PositionalEncoding(nn.Module):
     """
@@ -88,6 +88,7 @@ class TransformerLM(nn.Module):
         classifier_bias = True,
         ):
         super().__init__()
+        self.d_model = d_model
         self.vocab_size = vocab_size
         # Enbedding
         self.embed = nn.Embedding(vocab_size, d_model)
@@ -265,7 +266,8 @@ class TransformerConditionedLM(TransformerLM):
         fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
-        AR: bool = True
+        AR: bool = True,
+        refine_encoder_params: dict = None
         ):
         super().__init__(
             vocab_size,
@@ -284,8 +286,11 @@ class TransformerConditionedLM(TransformerLM):
         self.use_global_feature = use_global_feature
 
         self.LM_decoder = None
+        # if refine_encoder_params == None:
+        #     refine_encoder_params = config_refine_encoder_params
 
         # Get Image backbone
+        assert image_backbone != None, "Please choose an image backbone: ResNet, ViT, SW"
         if image_backbone.upper() == "RESNET":
             self.image_encoder = DinoResEncoder(encoded_image_size=refine_encoder_params["input_resolution"] , embed_dim=d_model)  # Image feature is [Batch, 14*14, d_model]
             # self.image_encoder = DinoResEncoder_NoPooling(embed_dim=d_model) 
@@ -293,11 +298,12 @@ class TransformerConditionedLM(TransformerLM):
         elif image_backbone.upper() == "VIT":
             self.image_encoder = ViTEncoder(embed_dim=d_model) 
         elif image_backbone.upper() == "ST":
-            print("Unimplemented Yet")
-            return None
+            # print("Unimplemented Yet")
+            # return None
+            raise NotImplementedError
         else:
-            print("Please choose an image backbone: ResNet, ViT, SW")
-            return None
+            print("Please choose an image backbone: ResNet, ViT, ST")
+            raise NotImplementedError
         
         if self.use_refine_encoder:
             resolution = refine_encoder_params["input_resolution"]
@@ -336,6 +342,9 @@ class TransformerConditionedLM(TransformerLM):
         # self.classifier = nn.Linear(d_model, vocab_size)
         self.init_weights()
     
+    def get_image_features(self, imgs):
+        return self.image_encoder(imgs)
+
     def prefuse_gx(self, x, gx, seq_padding_mask):
         if self.use_global_feature:
             if gx.dim() == 2:
@@ -375,7 +384,8 @@ class TransformerConditionedLM(TransformerLM):
             If you use ViT:
             gx is the classifier token.
         '''
-        imgs, gx = self.image_encoder(imgs)
+        # imgs, gx = self.image_encoder(imgs)
+        imgs, gx = self.get_image_features(imgs)
         if self.use_refine_encoder:
             '''
                 Here if use_global_feature is True:
@@ -408,32 +418,59 @@ class TransformerConditionedLM(TransformerLM):
         decoder_output = self.classifier(decoder_output)
         return decoder_output, encoded_seq, decode_lenths, sort_ind
     
+    def action_to_image(self, action):
+        # Designed for RL
+        # action size is fixed due to some reason
+        # [Batch, 49 * 2048 + sentence_embed]
+        assert action.size(-1) >= 49*2048, "Action size too small"
+        imgs = action[:, :49*2048].view(1, 49, 2048)
+        # imgs = imgs.to(device)
+        return imgs
+
     def decode(
         self,
-        img,
-        start_unit: int,
-        end_unit: int,
+        img = None,
+        start_unit: int = None,
+        end_unit: int = None,
+        action: torch.Tensor = None,
         max_len: int = 500,
         beam_size: int = 5,
         ):
         self.eval()
         with torch.no_grad():
             device = next(self.parameters()).device
-            img = img.to(device)
-            # print(device)
 
-            assert img.dim() == 4, "Input should be sized: [1, C, H, W]"
-            assert img.size(0) == 1, "Inference one image at a time"
-
-            imgs, gx = self.image_encoder(img)
+            # if action is not None:
+            #     assert action.size(-1) >= 49*1024, "Action size too small"
+            #     imgs = action[:, :49*1024].view(1, 49, 1024)
+            #     imgs = imgs.to(device)
+            if action is not None:
+                # assert action.size(-1) >= 49*self.d_model, "Action size too small"
+                # imgs = action[:, :49*self.d_model].view(1, 49, self.d_model)
+                imgs = self.action_to_image(action)
+                imgs = imgs.to(device)
+                gx = imgs.mean(1)
+            elif img is not None:
+                img = img.to(device)
+                # print(device)
+                assert img.dim() == 4, "Input should be sized: [1, C, H, W]"
+                assert img.size(0) == 1, "Inference one image at a time"
+                # imgs, gx = self.image_encoder(img)
+                imgs, gx = self.get_image_features(img)
+            else:
+                print("Input at least one from: Image or Action")
+                raise ValueError
+            
             if self.use_refine_encoder:
                 '''
                 here gx [1, d_model]
                 imgs    [1, 196, d_model]
                 '''
                 gx, imgs = self.refine_encoder(imgs)
+            
             gx_origin = gx
             imgs_origin = imgs
+
             k = beam_size
             
             # Tensor to store top k previous words at each step; now they're just <start>
@@ -536,7 +573,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
         fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
-        AR: bool = True
+        AR: bool = True,
+        refine_encoder_params: dict = None
         ):
         super().__init__(
             vocab_size,
@@ -552,24 +590,11 @@ class TransformerSentenceLM(TransformerConditionedLM):
             fine_tune_image_encoder,
             use_refine_encoder,
             use_global_feature,
-            AR
+            AR,
+            refine_encoder_params
         )
         self.use_sentence_encoder = use_sentence_encoder
         self.LM_decoder = None
-        # Get Image backbone
-        if image_backbone.upper() == "RESNET":
-            # self.image_encoder = DinoResEncoder_FixPooling(embed_dim=d_model)  #
-            self.image_encoder = DinoResEncoder(encoded_image_size=7, embed_dim=d_model)
-            self.image_encoder.fine_tune(self.fine_tune_image_encoder)
-        elif image_backbone.upper() == "VIT":
-            print("Unimplemented Yet")
-        elif image_backbone.upper() == "ST":
-            print("Unimplemented Yet")
-            return None
-        else:
-            print("Please choose an image backbone: ResNet, ViT, SW")
-            return None
-        
         if self.use_sentence_encoder:
             encoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
             # decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
@@ -633,7 +658,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
         if self.use_sentence_encoder:
             z, kl_loss = self.encode_x(x, seq_len, seq_padding_mask, verbose)
             
-        imgs, gx = self.image_encoder(imgs)
+        # imgs, gx = self.image_encoder(imgs)
+        imgs, gx = self.get_image_features(imgs)
         if self.use_refine_encoder:
             gx, imgs = self.refine_encoder(imgs)
         
@@ -661,14 +687,27 @@ class TransformerSentenceLM(TransformerConditionedLM):
             return decoder_output, encoded_seq, decode_lenths, sort_ind, kl_loss
         else:
             return decoder_output, encoded_seq, decode_lenths, sort_ind, 0
-
+        
+    def action_to_image(self, action, beam_size):
+        if action.size(-1) > 49*2048:
+            fmap = action[:, :49*2048].view(1, 49, 2048)
+            embed = action[:, 49*2048:]
+            embed = self.make_memory(embed)
+            embed = embed.unsqueeze(1)
+            m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+            m = m.expand(beam_size, 50, 2048)
+        else:
+            fmap = action[:, :49*2048].view(1, 49, 2048)
+            m = fmap.expand(beam_size, 49, 2048)
+        return m
+    
     @torch.inference_mode()
     def decode(
         self,
         start_unit: int,
         end_unit: int,
         action: torch.Tensor = None,
-        x=None,
+        # x=None,
         padding_mask=None,
         seq_len=None,
         image=None,
@@ -680,20 +719,22 @@ class TransformerSentenceLM(TransformerConditionedLM):
         """
         self.eval()
         if action is not None:
-            if action.size(-1) > 49*2048:
-                fmap = action[:, :49*2048].view(1, 49, 2048)
-                embed = action[:, 49*2048:]
-                embed = self.make_memory(embed)
-                embed = embed.unsqueeze(1)
-                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-                m = m.expand(beam_size, 50, 2048)
-            else:
-                fmap = action[:, :49*2048].view(1, 49, 2048)
-                m = fmap.expand(beam_size, 49, 2048)
-        elif x is None:
-            imgs, gx = self.image_encoder(imgs)
-            m = imgs  # (1, d_model)
-            m = m.expand(beam_size, 49, 2048)
+            # if action.size(-1) > 49*2048:
+            #     fmap = action[:, :49*2048].view(1, 49, 2048)
+            #     embed = action[:, 49*2048:]
+            #     embed = self.make_memory(embed)
+            #     embed = embed.unsqueeze(1)
+            #     m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+            #     m = m.expand(beam_size, 50, 2048)
+            # else:
+            #     fmap = action[:, :49*2048].view(1, 49, 2048)
+            #     m = fmap.expand(beam_size, 49, 2048)
+            m = self.action_to_image(action, beam_size)
+        elif image is None:
+            # imgs, gx = self.image_encoder(imgs)
+            imgs, gx = self.get_image_features(image)
+            m = imgs 
+            m = m.expand(beam_size, 49, self.d_model)
 
         k = beam_size
         # Tensor to store top k previous words at each step; now they're just <start>

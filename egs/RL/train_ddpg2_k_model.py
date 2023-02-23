@@ -334,6 +334,7 @@ class SpoLacq(gym.Env):
 
         # uses the last 2 action[-2:] to predict the pos of the right ans
         pred_num = np.argmax(alpha)
+        print("alpha", alpha, "pred_num", pred_num, "ans", ans, flush=True)
         if ans_num == pred_num:
             self.rl_rewards.append(1)
         else:
@@ -351,8 +352,8 @@ class SpoLacq(gym.Env):
         right_ans, right_name = judge_ans(transcription, img_path)
         print(
             self.num_step,
-            self.img_list[self.data_num1].split("/")[5],
-            self.img_list[self.data_num2].split("/")[5],
+            get_image_info(self.img_list[self.data_num1]),
+            get_image_info(self.img_list[self.data_num2]),
             f"ANSWER: {get_image_info(img_path)}",
             flush=True,
             )
@@ -428,9 +429,9 @@ if __name__ == "__main__":
     img_list_test = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["test"]]
     
     if is_debug:
-        img_list_train = img_list_train[:100]
-        img_list_eval = img_list_eval[:10]
-        img_list_test = img_list_test[:10]
+        img_list_train = img_list_train[:10]
+        img_list_eval = img_list_eval[:1]
+        img_list_test = img_list_test[:1]
     
     # foods_incremental = [
     #     'lemon',
@@ -456,11 +457,12 @@ if __name__ == "__main__":
 
     # --------------------------------------------------------------------------------
     print("Prepare enviroment")
+    # NOTE: changed reward
     env = SpoLacq(
         d_embed=config["u2u"]["d_embed"],
         d_img_features=49*2048,
         img_list=img_list_train,
-        rewards=[1, 0, 0],
+        rewards=[1, 0.1, 0],
         )
     
     eval_env = SpoLacq(
@@ -488,7 +490,7 @@ if __name__ == "__main__":
         train_freq=4,
         action_noise=action_noise,
         replay_buffer_kwargs = dict(handle_timeout_termination=False),
-        tensorboard_log='./spolacq_tmplog/',
+        tensorboard_log='./spolacq_tmplog_hard_img/',
         policy_kwargs=dict(
             net_arch=dict(
                 pi=[[150, 75, 2], [150, 75, config["u2u"]["d_embed"]]],
@@ -512,4 +514,4 @@ if __name__ == "__main__":
         # eval_log_path="./logs_ddpg_embed_icassp/",
         )
     
-    env.save_rewards("./spolacq_tmplog/rl_accuracy.npy")
+    env.save_rewards("./spolacq_tmplog_hard_img/rl_accuracy.npy")

@@ -40,7 +40,7 @@ i2u:
   # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
   # dir_name: "encodec1"
   # dir_name: "trimmed_mapping_SpeakerALL_Color"
-  dir_name: VC_5_captions
+  dir_name: VC_5_captions_224
 
   #### Model params
   # batch_size: 32
@@ -72,8 +72,8 @@ i2u:
     dropout: 0.1
     image_backbone: "ResNet"
     fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
-    use_refine_encoder: True # True
-    use_global_feature: True # True
+    use_refine_encoder: False # True
+    use_global_feature: False # True
     AR: True
 
   refine_encoder_params:
