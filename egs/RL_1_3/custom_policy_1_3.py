@@ -13,12 +13,13 @@ from stable_baselines3.common.torch_layers import get_actor_critic_arch, BaseFea
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.td3.policies import TD3Policy
 from stable_baselines3.common.utils import safe_mean
+from torchvision.models.resnet import resnet50
 
 
 class ResNet50(th.nn.Module):
     def __init__(self):
         super().__init__()
-        from torchvision.models.resnet import resnet50
+        # from torchvision.models.resnet import resnet50
         self.cnn = resnet50(pretrained=False)
         self.cnn.fc = th.nn.Identity()
         state_dict = th.hub.load_state_dict_from_url(
@@ -43,6 +44,45 @@ class ResNet50(th.nn.Module):
         batch, _, _, channels = x.size()
         x = x.view(batch, -1, channels)
         return x
+
+class ResNet50_new(th.nn.Module):
+    def __init__(self):
+        super(ResNet50_new, self).__init__()
+        resnet = resnet50(weights=None)
+        resnet.fc = th.nn.Identity()
+        resnet.load_state_dict(th.load("../../saved_model/dino_resnet50_pretrain.pth"))
+
+        # Remove linear and pool layers (since we're not doing classification)
+        modules = list(resnet.children())[:-2]
+        self.resnet = nn.Sequential(*modules)
+        self.fine_tune()
+        self.resnet.eval()
+
+    def forward(self, images):
+        """
+        Forward propagation.
+
+        :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
+        :return: encoded images
+        """
+        out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
+        out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
+        batch, _, _, channels = out.size()
+        out = out.view(batch, -1, channels)
+        return out
+    
+    def fine_tune(self, fine_tune=False):
+        """
+        Allow or prevent the computation of gradients for convolutional blocks 2 through 4 of the encoder.
+
+        :param fine_tune: Allow?
+        """
+        for p in self.resnet.parameters():
+            p.requires_grad = False
+        # If fine-tuning, only fine-tune convolutional blocks 2 through 4
+        for c in list(self.resnet.children())[5:]:
+            for p in c.parameters():
+                p.requires_grad = fine_tune
 
 
 class CustomFeaturesExtractorCNN(BaseFeaturesExtractor):
@@ -75,7 +115,14 @@ class CustomFeaturesExtractorCNN(BaseFeaturesExtractor):
             features = self.relu(features)
         return features, flatten_leftimage_features, flatten_rightimage_features
 
+class CustomFeaturesExtractorCNN_new(CustomFeaturesExtractorCNN):
+    def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 50):
+        super().__init__(observation_space, features_dim)
 
+        # self.cnn = ResNet50()
+        self.cnn = ResNet50_new()
+
+        
 class CustomActor(BasePolicy):
     """
     Actor network (policy) for TD3.
@@ -452,6 +499,59 @@ class CustomTD3PolicyCNN(BasePolicy):
         self.critic.set_training_mode(mode)
         self.training = mode
 
+
+class CustomTD3PolicyCNN_new(CustomTD3PolicyCNN):
+    """
+    Policy class (with both actor and critic) for TD3.
+    :param observation_space: Observation space
+    :param action_space: Action space
+    :param lr_schedule: Learning rate schedule (could be constant)
+    :param net_arch: The specification of the policy and value networks.
+    :param activation_fn: Activation function
+    :param features_extractor_class: Features extractor to use.
+    :param features_extractor_kwargs: Keyword arguments
+        to pass to the features extractor.
+    :param normalize_images: Whether to normalize images or not,
+         dividing by 255.0 (True by default)
+    :param optimizer_class: The optimizer to use,
+        ``th.optim.Adam`` by default
+    :param optimizer_kwargs: Additional keyword arguments,
+        excluding the learning rate, to pass to the optimizer
+    :param n_critics: Number of critic networks to create.
+    :param share_features_extractor: Whether to share or not the features extractor
+        between the actor and the critic (this saves computation time)
+    """
+
+    def __init__(
+        self,
+        observation_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        # features_extractor_class: Type[BaseFeaturesExtractor] = CustomFeaturesExtractorCNN,
+        features_extractor_class: Type[BaseFeaturesExtractor] = CustomFeaturesExtractorCNN_new,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = True,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            activation_fn,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+        )
 
 class CustomDDPG(TD3):
     """

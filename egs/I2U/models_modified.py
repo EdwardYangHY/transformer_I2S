@@ -36,6 +36,7 @@ from image_encoder import DinoResEncoder, ViTEncoder, DinoResEncoder_NoPool
 from PureT_encoder import Encoder as refine_encoder
 from typing import Optional, Any, Union, Callable
 from torch import Tensor
+from load_pretrained_uLM import uLM2decoder
 
 import yaml
 with open('../../config.yml', 'r') as yml:
@@ -173,3 +174,65 @@ class TransformerSentenceLM_FixedImg(TransformerSentenceLM):
             fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
             m = fmap.expand(beam_size, 49, self.d_model)
         return m
+
+class TransformerSentenceLM_FixedImg_gated(TransformerSentenceLM_FixedImg):
+    def __init__(
+        self,
+        vocab_size: int,
+        d_model: int = 1024,
+        nhead: int = 8,
+        num_layers: int = 6,
+        activation="gelu",
+        layer_norm_eps: float = 1e-5,
+        batch_first: bool = True,
+        norm_first: bool = True,
+        dropout: float = 0.1,
+        image_backbone: str = "ResNet",
+        use_sentence_encoder: bool = True,
+        sentence_embed: int = 16,
+        fine_tune_image_encoder: bool = False,
+        use_refine_encoder: bool = False,
+        use_global_feature: bool = False,
+        AR: bool = True,
+        refine_encoder_params: dict = None,
+        tau: float = 0.2,
+        ):
+        super().__init__(
+            vocab_size,
+            d_model,
+            nhead,
+            num_layers,
+            activation,
+            layer_norm_eps,
+            batch_first,
+            norm_first,
+            dropout,
+            image_backbone,
+            use_sentence_encoder,
+            sentence_embed,
+            fine_tune_image_encoder,
+            use_refine_encoder,
+            use_global_feature,
+            AR,
+            refine_encoder_params
+        )
+        decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        # decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model, dropout= self.dropout,
+        #                                            activation=activation, batch_first=batch_first, norm_first=norm_first)
+        decoder_layer = custom_TransformerDecoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model, dropout= self.dropout,
+                                                    activation=activation, batch_first=batch_first, norm_first=norm_first, tau=tau)
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers, decoder_norm)
+
+        # self.classifier = nn.Linear(d_model, vocab_size)
+        self.init_weights()
+    
+    def load_Pretrained_LM(self, LM_path):
+        print(f"Load uLM weights from path: {LM_path}")
+        LM_model = torch.load(LM_path)
+        LM_state_dict = LM_model["model_state_dict"]
+        current_state_dict = self.state_dict()
+        loaded = uLM2decoder(current_state_dict, LM_state_dict)
+        self.load_state_dict(loaded)
+    
+    def freeze_key(self, key):
+        pass

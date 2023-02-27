@@ -10,6 +10,9 @@ data:
 
 u2s:
   tacotron2: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
+  #### If using gtts synthesized data, use the following Tacotron2 model ####
+  # tacotron2: /net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/outdir_synthesized_gtts/checkpoint_455000
+  
   # waveglow: "../../model/waveglow_256channels_universal_v5.pt"
   
   batch_size: 64

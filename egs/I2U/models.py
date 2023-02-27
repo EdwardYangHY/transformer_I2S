@@ -606,6 +606,15 @@ class TransformerSentenceLM(TransformerConditionedLM):
             self.mu = nn.Linear(d_model, sentence_embed)
             self.make_memory = nn.Linear(sentence_embed, d_model)
     
+    def get_mu(self, seq, seq_len, seq_padding_mask):
+        x = self.embed(seq)
+        x = self.pos_encoder(x)
+        z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
+        z = z * seq_padding_mask.logical_not().unsqueeze(2)
+        z = z.sum(dim = 1)/ seq_len.unsqueeze(1)
+        mu = self.mu(z)  # (batch, sentence_embed)
+        return mu
+
     def encode_x(self, x, seq_len, seq_padding_mask, verbose):
         z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
         z = z * seq_padding_mask.logical_not().unsqueeze(2)
