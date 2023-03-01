@@ -5,13 +5,15 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
-from models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
+from models.models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
 from datasets import *
-from utils_LM import *       #changed
+# from utils_LM import *       #changed
+from utils import *
 from nltk.translate.bleu_score import corpus_bleu
 # from torcheval.metrics.text import Perplexity
 # from torch.optim.lr_scheduler import LambdaLR
 import shutil
+import trainer
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -111,7 +113,8 @@ def main():
         model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity = load_checkpoint(checkpoint, model, optimizer, device)
     
     if use_scheduler:
-        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch, d_model=model_params["d_model"])
+        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch-1, d_model=model_params["d_model"])
+        # scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], d_model=model_params["d_model"])
 
     # set schedulaer's epoch to match up with the current lr
     # scheduler.last_epoch = start_epoch
@@ -124,8 +127,6 @@ def main():
     criterion = nn.CrossEntropyLoss().to(device)
 
     # Custom dataloaders
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
     train_loader = torch.utils.data.DataLoader(
         UnitDatasetMask(data_folder, data_name, 'TRAIN', word_map=word_map),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
@@ -140,215 +141,49 @@ def main():
     shutil.copyfile(config_path, f"../../saved_model/LM/{dir_name}/{train_ID}/config_LM.yml")
 
     for epoch in range(start_epoch, epochs):
-        train(
-            train_loader,
-            model,
-            criterion,
-            optimizer,
-            epoch,
-            writer,
+        trainer.train_LM(
+            train_loader=train_loader,
+            model=model,
+            criterion=criterion,
+            optimizer=optimizer,
+            epoch=epoch,
+            writer=writer,
+            grad_clip=grad_clip,
+            device=device,
+            print_freq=print_freq,
         )
         if use_scheduler:
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
             scheduler.step()
-        
-        # validata
-        # top5acc_avg, losses_avg = validate(
-        #     val_loader, 
-        #     model, 
-        #     criterion
-        # )
-        # writer.add_scalar("Valid/Top5Accuracy", top5acc_avg, epoch)
-        # writer.add_scalar("Valid/Losses", losses_avg, epoch)
 
-        # add perplexity
-        pp, losses_avg = validate(
-            val_loader, 
-            model, 
-            criterion
+        pp, loss = trainer.validate_LM(
+            val_loader=val_loader,
+            model=model,
+            criterion=criterion,
+            epoch=epoch,
+            writer=writer,
+            device=device,
+            print_freq=print_freq,
         )
-        writer.add_scalar("Valid/Perplexity", pp, epoch)
-        writer.add_scalar("Valid/Losses", losses_avg, epoch)
-        # Judge model
 
-        # recent_bleu4 = 0
-        # is_best_bleu4 = recent_bleu4 > best_bleu4
-        # save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_bleu4, train_ID, device)
-
-        # is_best_accuracy = top5acc_avg > best_accuracy
-        # best_accuracy = max(top5acc_avg, best_accuracy)
-        # save_checkpoint("top5acc", data_name, epoch, model, optimizer, recent_bleu4, top5acc_avg, is_best_accuracy, train_ID, device=None)
-        # print(f"Saving model in {time.time() - start} seconds")
 
         is_best_perplexity = pp < best_perplexity
         best_perplexity = min(pp, best_perplexity)
         start = time.time()
-        
-        save_checkpoint("perplexity", data_name, epoch, model, optimizer, pp, is_best_perplexity, train_ID, device=None)
-        print(f"Saving model in {time.time() - start} seconds")
-        
 
-def train(train_loader, model, criterion, optimizer, epoch, writer):
-    """
-    Performs one epoch's training.
-
-    :param train_loader: DataLoader for training data
-    :param encoder: encoder model
-    :param decoder: decoder model
-    :param criterion: loss layer
-    :param encoder_optimizer: optimizer to update encoder's weights (if fine-tuning)
-    :param decoder_optimizer: optimizer to update decoder's weights
-    :param epoch: epoch number
-    """
-
-    model.train()
-
-    batch_time = AverageMeter()  # forward prop. + back prop. time
-    data_time = AverageMeter()  # data loading time
-    losses = AverageMeter()  # loss (per word decoded)
-    top5accs = AverageMeter()  # top5 accuracy
-    perplexity = AverageMeter()
-
-    start = time.time()
-    
-    # This codes are for debug: check the model params works
-    # for tag, value in model.named_parameters():
-    #     tag = tag.replace('.', '/')
-    #     print(tag, value)
-
-    # add perplextiy
-    # pp = Perplexity()
-
-    # Batches
-    for i, (caps, caplens, padding_mask) in enumerate(train_loader):
-        data_time.update(time.time() - start)
-
-        # Move to GPU, if available
-        caps = caps.to(device)
-        caplens = caplens.to(device)
-        caplens = caplens.squeeze()
-        padding_mask = padding_mask.to(device)
-
-        # Forward prop.
-        logits, encoded_seq, decode_lengths, sort_ind = model(
-            caps,
-            padding_mask,
-            caplens
+        save_checkpoint(
+            data_name=data_name,
+            epoch=epoch,
+            model=model,
+            optimizer=optimizer,
+            metric_name="perplexity",
+            metric_value=pp,
+            is_best=is_best_perplexity,
+            dir_name=dir_name,
+            train_ID=train_ID,
+            device=device
         )
-
-        # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
-        targets = encoded_seq[:, 1:]
-
-        # Remove timesteps that we didn't decode at, or are pads
-        # pack_padded_sequence is an easy trick to do this
-        # pp.update(logits, targets)
-        scores, _, _, _ = pack_padded_sequence(logits, decode_lengths, batch_first=True, enforce_sorted=False)
-        targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
-
-        # Calculate loss
-        loss = criterion(scores, targets)
-
-        # Back prop.
-        optimizer.zero_grad()
-        loss.backward()
-
-        # Grad Clip preveting grad explosion
-        if grad_clip is not None:
-            clip_gradient(optimizer, grad_clip)
-
-        optimizer.step()
-        # this_accuracy = torch.sum(torch.argmax(scores, dim=1) == targets) / logits.size(dim=0)
-        
-        # Keep tracks of metrics
-        # add Perplexity
-        pp = torch.exp(loss)
-        perplexity.update(pp, sum(decode_lengths))
-
-        # top5 = accuracy(scores, targets, 5)
-        losses.update(loss.item(), sum(decode_lengths))
-        # top5accs.update(top5, sum(decode_lengths))
-
-        batch_time.update(time.time() - start)
-
-        if i % 10 == 0:
-            niter = epoch * len(train_loader) + i
-            writer.add_scalar('Train/Loss', loss.data, niter)
-            #writer.add_scalar('Train/Avg_Perplexity', top5, niter)
-            writer.add_scalar('Train/Avg_Perplexity', pp, niter)
-
-        start = time.time()
-
-        if i % print_freq == 0:
-            print('Epoch: [{0}][{1}/{2}]\t'
-                  'Batch Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data Load Time {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Perplexity {perplexity.val:.3f} ({perplexity.avg:.3f}) '.format(epoch, i, len(train_loader),
-                                                                          batch_time=batch_time,
-                                                                          data_time=data_time, loss=losses,
-                                                                          perplexity=perplexity))
-
-def validate(val_loader, model, criterion): # -> bleu-4, accuracy
-    model.eval()
-    batch_time = AverageMeter()
-    losses = AverageMeter()
-    top5accs = AverageMeter()
-    perplexity = AverageMeter()
-    start = time.time()
-
-    # add perplexity
-    # pp = Perplexity()
-
-    with torch.no_grad():
-        for i, (caps, caplens, padding_mask) in enumerate(val_loader):
-
-            caps = caps.to(device)
-            caplens = caplens.to(device)
-            caplens = caplens.squeeze()
-            padding_mask = padding_mask.to(device)
-
-            logits, encoded_seq, decode_lengths, sort_ind = model(
-                caps,
-                padding_mask,
-                caplens
-            )
-
-            targets = encoded_seq[:, 1:]
-            scores_copy = logits.clone()
-            scores, _, _, _ = pack_padded_sequence(logits, decode_lengths, batch_first=True, enforce_sorted=False)
-            targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
-            
-            loss = criterion(scores, targets)
-
-            # Keep track of current validations
-            losses.update(loss.item(), sum(decode_lengths))
-            # top5 = accuracy(scores, targets, 5)
-            # top5accs.update(top5, sum(decode_lengths))
-            batch_time.update(time.time() - start)
-
-            # add perplexity
-            # pp.update(scores, targets)
-            # pp_value = pp.compute()
-            pp = torch.exp(loss)
-            perplexity.update(pp, sum(decode_lengths))
-            
-            # niter = epoch * len(train_loader) + i
-            # writer.add_scalar('Train/Loss', loss.data, niter)
-            # writer.add_scalar('Train/Top-5-Accuracy', top5, niter)
-
-            start = time.time()
-
-            if i % print_freq == 0:
-                print('Validation: [{0}/{1}]\t'
-                      'Batch Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Perplexity {perplexity.val:.3f} ({perplexity.avg:.3f})\t'.format(i, len(val_loader), batch_time=batch_time,
-                                                                                loss=losses, perplexity=perplexity))
-        print(
-            '\n * LOSS - {loss.avg:.3f}, PERPLEXITY - {perplexity.avg:.3f}\n'.format(
-                loss=losses,
-                perplexity=perplexity))
-    return perplexity.avg, losses.avg
+        print(f"Saving model in {time.time() - start} seconds")
 
 
 if __name__ == '__main__':

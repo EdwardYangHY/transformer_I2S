@@ -15,13 +15,14 @@ import warnings
 import math
 from torch.optim.lr_scheduler import LambdaLR
 
-with open('../../config.yml', 'r') as yml:
-    config = yaml.safe_load(yml)
+# config_path='../../config_sentence.yml'
+# with open(config_path, 'r') as yml:
+#     config = yaml.safe_load(yml)
 
-dir_name = config["i2u"]["dir_name"]
+# dir_name = config["i2u"]["dir_name"]
 
-def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, output_folder,
-                       max_len=100):
+def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, 
+                       output_folder, dir_name, max_len=100):
     with open(f'../../data/I2U/processed/{dir_name}/train_image_paths.pickle', 'rb') as f:
         train_image_paths = pickle.load(f)
     with open(f'../../data/I2U/processed/{dir_name}/train_image_captions.pickle', 'rb') as f:
@@ -95,7 +96,8 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
                     img = img[:, :, np.newaxis]
                     img = np.concatenate([img, img, img], axis=2)
                 # img = imresize(img, (256, 256))
-                resolution = int(config['data']['image_resolution'])
+                # resolution = int(config['data']['image_resolution'])
+                resolution = 224
                 img = np.array(Image.fromarray(img).resize((resolution, resolution)))
                 img = img.transpose(2, 0, 1)
                 assert img.shape == (3, resolution, resolution)
@@ -126,7 +128,6 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
 
             with open(os.path.join(output_folder, split + '_CAPLENS_' + base_filename + '.json'), 'w') as j:
                 json.dump(caplens, j)
-
 
 def init_embedding(embeddings):
     """
@@ -186,7 +187,45 @@ def clip_gradient(optimizer, grad_clip):
             if param.grad is not None:
                 param.grad.data.clamp_(-grad_clip, grad_clip)
 
-def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_score, is_best, train_ID ,device=None):
+# def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_score, is_best, train_ID ,device=None):
+#     '''
+#         使用的scheduel， 是否需要存储其变化的lr？
+#     '''
+#     state = {
+#         'epoch': epoch,
+#         'model_state_dict': model.state_dict(),
+#         'optimizer_state_dict': optimizer.state_dict(),
+#         'bleu-4': bleu4,
+#         'accuracy': accuracy_score,
+#     }
+#     filename = 'checkpoint_' + data_name + '.pth.tar'
+#     ### If use GPU, save differently
+#     if device != None:
+#         if device.type=='cuda':
+#             filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
+#     ###
+#     torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
+#     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
+#     if is_best:
+#         torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric}_BEST_' + filename)
+
+# def load_checkpoint(checkpoint_path, model, optimizer, device):
+#     checkpoint = checkpoint_path
+#     print(f"Loading checkpoint from {checkpoint}")
+#     # checkpoint = torch.load(checkpoint)
+#     checkpoint = torch.load(checkpoint, map_location=device)
+#     start_epoch = checkpoint['epoch'] + 1
+#     model.load_state_dict(checkpoint['model_state_dict'])
+#     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+#     for state in optimizer.state.values():
+#         for k, v in state.items():
+#             if torch.is_tensor(v):
+#                 state[k] = v.to(device)
+#     best_bleu4 = checkpoint["bleu-4"]
+#     best_accuracy = checkpoint["accuracy"]
+#     return model, optimizer, start_epoch, best_bleu4, best_accuracy
+
+def save_checkpoint(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None):
     '''
         使用的scheduel， 是否需要存储其变化的lr？
     '''
@@ -194,8 +233,8 @@ def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'bleu-4': bleu4,
-        'accuracy': accuracy_score,
+        'metric_name': metric_name,
+        'metric_value': metric_value,
     }
     filename = 'checkpoint_' + data_name + '.pth.tar'
     ### If use GPU, save differently
@@ -206,7 +245,7 @@ def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_
     torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
     if is_best:
-        torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric}_BEST_' + filename)
+        torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric_name}_BEST_' + filename)
 
 def load_checkpoint(checkpoint_path, model, optimizer, device):
     checkpoint = checkpoint_path
@@ -220,9 +259,9 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
         for k, v in state.items():
             if torch.is_tensor(v):
                 state[k] = v.to(device)
-    best_bleu4 = checkpoint["bleu-4"]
-    best_accuracy = checkpoint["accuracy"]
-    return model, optimizer, start_epoch, best_bleu4, best_accuracy
+    metric_name = checkpoint["metric_name"]
+    metric_value = checkpoint["metric_value"]
+    return model, optimizer, start_epoch, metric_name, metric_value
 
 # def save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder, encoder_optimizer, decoder_optimizer,
 #                     bleu4, is_best, device=None):
@@ -327,21 +366,22 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
                       "The distribution of values may be incorrect.",
                       stacklevel=2)
 
-def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
-    def lr_lambda(current_epoch: int):
-        """
-        Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
-        """
-        return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
-
-    return LambdaLR(optimizer, lr_lambda, verbose=True)
-
-# def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0, d_model: int = 2048):
+# def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
 #     def lr_lambda(current_epoch: int):
 #         """
 #         Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
 #         """
 #         return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
 
-#     return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch, verbose=True)
+#     return LambdaLR(optimizer, lr_lambda, verbose=True)
+
+def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0, d_model: int = 2048):
+    
+    def lr_lambda(current_epoch: int):
+        """
+        Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
+        """
+        return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
+
+    return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch, verbose=True)
 

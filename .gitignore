@@ -1,10 +1,11 @@
 # Ignore:
 # data/
 
+__pycache__
 FashionMNIST/
 egs/dino/
 egs/RL/spolacq*/
 egs/RL*/spolacq*/
 egs/RL*/logs*/
-egs/*/__pycache__
+# egs/*/__pycache__
 hifigan/

@@ -15,11 +15,118 @@ import warnings
 import math
 from torch.optim.lr_scheduler import LambdaLR
 
-config_path='../../config_sentence.yml'
-with open(config_path, 'r') as yml:
+with open('../../config.yml', 'r') as yml:
     config = yaml.safe_load(yml)
 
 dir_name = config["i2u"]["dir_name"]
+
+def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, output_folder,
+                       max_len=100):
+    with open(f'../../data/I2U/processed/{dir_name}/train_image_paths.pickle', 'rb') as f:
+        train_image_paths = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/train_image_captions.pickle', 'rb') as f:
+        train_image_captions = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/val_image_paths.pickle', 'rb') as f:
+        val_image_paths = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/val_image_captions.pickle', 'rb') as f:
+        val_image_captions = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/test_image_paths.pickle', 'rb') as f:
+        test_image_paths = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/test_image_captions.pickle', 'rb') as f:
+        test_image_captions = pickle.load(f)
+    with open(f'../../data/I2U/processed/{dir_name}/word_freq.pickle', 'rb') as f:
+        word_freq = pickle.load(f)
+
+
+
+    # Create word map
+    words = [w for w in word_freq.keys() if word_freq[w] > min_word_freq]
+    word_map = {k: v + 1 for v, k in enumerate(words)}
+    word_map['<unk>'] = len(word_map) + 1
+    word_map['<start>'] = len(word_map) + 1
+    word_map['<end>'] = len(word_map) + 1
+    word_map['<pad>'] = 0
+
+    # Create a base/root name for all output files
+    base_filename = dataset + '_' + str(captions_per_image) + '_cap_per_img_' + str(min_word_freq) + '_min_word_freq'
+
+    # Save word map to a JSON
+    with open(os.path.join(output_folder, 'WORDMAP_' + base_filename + '.json'), 'w') as j:
+        json.dump(word_map, j)
+
+    # Sample captions for each image, save images to HDF5 file, and captions and their lengths to JSON files
+    seed(123)
+    for impaths, imcaps, split in [(train_image_paths, train_image_captions, 'TRAIN'), #done
+                                   (val_image_paths, val_image_captions, 'VAL'),       #done
+                                   (test_image_paths, test_image_captions, 'TEST')]:
+
+        with h5py.File(os.path.join(output_folder, split + '_IMAGES_' + base_filename + '.hdf5'), 'a') as h:
+            # Make a note of the number of captions we are sampling per image
+            h.attrs['captions_per_image'] = captions_per_image
+
+            # Create dataset inside HDF5 file to store images
+            images = h.create_dataset('images', (len(impaths), 3, 256, 256), dtype='uint8')
+
+            print("\nReading %s images and captions, storing to file...\n" % split)
+
+            enc_captions = []
+            caplens = []
+
+            print(f"Model training {captions_per_image} captions per images, given {len(imcaps[0])} captions")
+
+            for i, path in enumerate(tqdm(impaths)):
+
+                # Sample captions
+                # imcaps[i] means captions of image i, which can be a lot
+                # if imcaps[i] doesn't have enough caps
+                if len(imcaps[i]) < captions_per_image:
+                    captions = imcaps[i] + [choice(imcaps[i]) for _ in range(captions_per_image - len(imcaps[i]))]
+                # if imcaps[i] has enough caps
+                else:
+                    captions = sample(imcaps[i], k=captions_per_image)
+
+                # Sanity check
+                assert len(captions) == captions_per_image
+
+                # Read images
+                # And reshaping
+                img = imread(impaths[i])
+                if len(img.shape) == 2:
+                    img = img[:, :, np.newaxis]
+                    img = np.concatenate([img, img, img], axis=2)
+                # img = imresize(img, (256, 256))
+                resolution = int(config['data']['image_resolution'])
+                img = np.array(Image.fromarray(img).resize((resolution, resolution)))
+                img = img.transpose(2, 0, 1)
+                assert img.shape == (3, resolution, resolution)
+                assert np.max(img) <= 255
+
+                # Save image to HDF5 file
+                images[i] = img
+
+                for j, c in enumerate(captions):
+                    # Encode captions
+                    enc_c = [word_map['<start>']] + [word_map.get(word, word_map['<unk>']) for word in c] + [
+                        word_map['<end>']] + [word_map['<pad>']] * (max_len - len(c))
+
+                    # Find caption lengths
+                    c_len = len(c) + 2
+                    assert c_len <= max_len + 2
+
+                    enc_captions.append(enc_c)
+                    caplens.append(c_len)
+
+            # Sanity check
+            # images数量 X 每个image的caption == enc_captions的总长度
+            assert images.shape[0] * captions_per_image == len(enc_captions) == len(caplens)
+
+            # Save encoded captions and their lengths to JSON files
+            with open(os.path.join(output_folder, split + '_CAPTIONS_' + base_filename + '.json'), 'w') as j:
+                json.dump(enc_captions, j)
+
+            with open(os.path.join(output_folder, split + '_CAPLENS_' + base_filename + '.json'), 'w') as j:
+                json.dump(caplens, j)
+
 
 def init_embedding(embeddings):
     """

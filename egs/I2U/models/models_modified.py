@@ -30,6 +30,8 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
+
+# sys.path.append("/net/papilio/storage2/yhaoyuan/transformer_I2S/egs/I2U/models")
 from models import PositionalEncoding, TransformerLM, TransformerConditionedLM, TransformerSentenceLM
 from models_custom import custom_TransformerDecoderLayer, TransformerConditionedLM_gated
 from image_encoder import DinoResEncoder, ViTEncoder, DinoResEncoder_NoPool
@@ -94,6 +96,8 @@ class TransformerConditionedLM_FixedImg(TransformerConditionedLM):
         imgs, gx = self.image_encoder(imgs)       # (Batch, 7*7, 2048)
         imgs = self.image_encoder_embedding(imgs) # (Batch, 7*7, d_model)
         gx = imgs.mean(1)
+        if self.use_refine_encoder:
+            gx, imgs = self.refine_encoder(imgs)
         return imgs, gx
         # The image encoder is only DinoResNet.
         # The out put is (Batch, (input_resolution/32)^2, 2048)
@@ -102,7 +106,10 @@ class TransformerConditionedLM_FixedImg(TransformerConditionedLM):
         assert action.size(-1) >= 49*2048, "Action size too small"
         imgs = action[:, :49*2048].view(1, 49, 2048) # (1, 7*7, 2048)
         imgs = self.image_encoder_embedding(imgs)    # (1, 7*7, d_model)
-        return imgs
+        gx = imgs.mean(1)
+        if self.use_refine_encoder:
+            gx, imgs = self.refine_encoder(imgs)
+        return imgs, gx
 
 class TransformerSentenceLM_FixedImg(TransformerSentenceLM):
     def __init__(
@@ -144,6 +151,9 @@ class TransformerSentenceLM_FixedImg(TransformerSentenceLM):
             AR,
             refine_encoder_params
         )
+        # 加到基类: TransformerLM 里了
+        # self.nhead = nhead
+        # self.num_layers = num_layers
         if image_backbone.upper() == "RESNET":
             self.image_encoder = DinoResEncoder_NoPool()
             self.image_encoder.fine_tune(fine_tune_image_encoder)
@@ -156,14 +166,29 @@ class TransformerSentenceLM_FixedImg(TransformerSentenceLM):
         imgs, gx = self.image_encoder(imgs)       # (Batch, 7*7, 2048)
         imgs = self.image_encoder_embedding(imgs) # (Batch, 7*7, d_model)
         gx = imgs.mean(1)
+        if self.use_refine_encoder:
+            gx, imgs = self.refine_encoder(imgs)
         return imgs, gx
         # The image encoder is only DinoResNet.
         # The out put is (Batch, (input_resolution/32)^2, 2048)
     
     def action_to_image(self, action, beam_size):
+        """
+            Why 49*2048?
+            This is decided by the feature extractor of RL.
+            The image resolution in previous task is 224*224.
+            And ResNet-Dino extract feature map by (resolution/32)^2,
+            and we ignored the classification layers to get raw image
+            features.
+            So the features of img originally from ResNet is:
+            [Batch, 224/32, 224/32, 2048]
+        """
         if action.size(-1) > 49*2048:
             fmap = action[:, :49*2048].view(1, 49, 2048) # (1, 49, 2048)
             fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
             embed = action[:, 49*2048:]
             embed = self.make_memory(embed)
             embed = embed.unsqueeze(1)
@@ -172,8 +197,40 @@ class TransformerSentenceLM_FixedImg(TransformerSentenceLM):
         else:
             fmap = action[:, :49*2048].view(1, 49, 2048)
             fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
             m = fmap.expand(beam_size, 49, self.d_model)
-        return m
+        return m, gx
+    
+    def load_Pretrained_LM(self, LM_path):
+        """
+            Load pretrained uLM's weights to current decoder.
+            We ignored:
+                1. Positional Encoding. This will not change.
+                2. Multi-head attention + norm layer. (no mha in LM)
+            
+            So how to set mha layer is up to the need, since mha is
+            initialized randomly.
+
+            uLM2decoder takes (current state dict, uLM state dict as 
+            input), will map the correspond value in uLM to current 
+            state dict, and return mapped state dict.
+
+            NOTE that:
+            uLM is 1024 dim, 16 heads, 12 layers.
+            decoder has to be the same structure.
+        """
+        assert self.d_model == 1024, f"Expect d_model: 1024, get d_model: {self.d_model}"
+        assert self.nhead == 16, f"Expect nhead: 16, get nhead: {self.nhead}"
+        assert self.num_layers == 12, f"Expect layers: 12, get layers: {self.num_layers}"
+
+        print(f"Load uLM weights from path: {LM_path}")
+        LM_model = torch.load(LM_path)
+        LM_state_dict = LM_model["model_state_dict"]
+        current_state_dict = self.state_dict()
+        loaded = uLM2decoder(current_state_dict, LM_state_dict)
+        self.load_state_dict(loaded)
 
 class TransformerSentenceLM_FixedImg_gated(TransformerSentenceLM_FixedImg):
     def __init__(
@@ -226,13 +283,13 @@ class TransformerSentenceLM_FixedImg_gated(TransformerSentenceLM_FixedImg):
         # self.classifier = nn.Linear(d_model, vocab_size)
         self.init_weights()
     
-    def load_Pretrained_LM(self, LM_path):
-        print(f"Load uLM weights from path: {LM_path}")
-        LM_model = torch.load(LM_path)
-        LM_state_dict = LM_model["model_state_dict"]
-        current_state_dict = self.state_dict()
-        loaded = uLM2decoder(current_state_dict, LM_state_dict)
-        self.load_state_dict(loaded)
+    # def load_Pretrained_LM(self, LM_path):
+    #     print(f"Load uLM weights from path: {LM_path}")
+    #     LM_model = torch.load(LM_path)
+    #     LM_state_dict = LM_model["model_state_dict"]
+    #     current_state_dict = self.state_dict()
+    #     loaded = uLM2decoder(current_state_dict, LM_state_dict)
+    #     self.load_state_dict(loaded)
     
     def freeze_key(self, key):
         pass

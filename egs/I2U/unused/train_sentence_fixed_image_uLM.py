@@ -5,10 +5,10 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
-from models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
-from models_custom import TransformerConditionedLM_gated
+# from models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
+from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
 from datasets import *
-from utils import *       #changed
+from transformer_I2S.egs.I2U.utils import *       #changed
 from nltk.translate.bleu_score import corpus_bleu
 # from torch.optim.lr_scheduler import LambdaLR
 import shutil
@@ -16,7 +16,9 @@ import shutil
 from torch.utils.tensorboard import SummaryWriter
 
 import yaml
-with open('../../config.yml', 'r') as yml:
+
+config_path = '../../config_sentence.yml'
+with open(config_path, 'r') as yml:
     config = yaml.safe_load(yml)
 
 dir_name = config["i2u"]["dir_name"]
@@ -30,6 +32,7 @@ data_folder = f'../../data/processed/{dir_name}/'  # folder with data files save
 #data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
 data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
 
+LM_checkpoint = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/PP_15.6512/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
 # Model parameters
 # emb_dim = 512  # dimension of word embeddings
 # attention_dim = 512  # dimension of attention linear layers
@@ -62,14 +65,16 @@ checkpoint = train_params["checkpoint_path"]  # path to checkpoint, None if none
 #checkpoint = "/net/papilio/storage2/yhaoyuan/LAbyLM/model/I2U/gtts_3_captions/BEST_checkpoint_coco_3_cap_per_img_1_min_word_freq_gpu.pth.tar"
 use_scheduler = train_params["use_scheduler"]
 
+kl_weight = train_params["kl_weight"]
+
 import sys
 is_debug = True if sys.gettrace() else False
 if is_debug:
     print("Debugging Mode")
-    train_ID = "debugging"
+    train_ID = "debugging_uLM_sentence"
 else:
     print("Training mode")
-    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_")
+    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_uLM_sentence"
 # train_ID = "debugging"
 
 # def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
@@ -95,18 +100,33 @@ def main():
 
     # Initialize / load checkpoint
     model_params['vocab_size'] = len(word_map)
-    model_params['tau'] = 0.2
-    model = TransformerConditionedLM_gated(**model_params)
+    # ----------------------------------------------------------------
+    img_refine_params = config["i2u"]["refine_encoder_params"]
+    model_params["refine_encoder_params"] = img_refine_params
+    # ----------------------------------------------------------------
+
+    ### Not gated model ###
+    if train_params["gated_decoder"]:
+        model = TransformerSentenceLM_FixedImg_gated(**model_params)
+    else:
+        model = TransformerSentenceLM_FixedImg(**model_params)
+    # model = TransformerSentenceLM_FixedImg(**model_params)
+    ### Gated model ###
+    # model = TransformerSentenceLM_FixedImg_gated(**model_params)
+    if train_params["load_uLM"]:
+        model.load_Pretrained_LM(LM_checkpoint)
+
+    # optimizer = torch.optim.Adam(model.parameters(), train_params["lr"])
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
 
     # scheduel LR
-    # if use_scheduler:
-    #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
+    if use_scheduler:
+        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
     if checkpoint is not None:
         model, optimizer, start_epoch, best_bleu4, best_accuracy = load_checkpoint(checkpoint, model, optimizer, device)
     
-    if use_scheduler:
-        scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch, d_model=model_params["d_model"])
+    # if use_scheduler:
+    #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch, d_model=model_params["d_model"])
     #optimizer = torch.optim.Adam(model.parameters(), decoder_lr)
     # Move to GPU, if available
     model.to(device)
@@ -125,15 +145,19 @@ def main():
         CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
     
+    val_loader_beam = torch.utils.data.DataLoader(
+        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
+        batch_size=1, shuffle=True, num_workers=workers, pin_memory=True)
+    
     # Epochs
     writer = SummaryWriter(f"../../saved_model/I2U/{dir_name}/{train_ID}/log")
-
+    # writer = None
     # Copy config to present model dir to keep record
-    shutil.copyfile("../../config.yml", f"../../saved_model/I2U/{dir_name}/{train_ID}/config.yml")
+    shutil.copyfile(config_path, f"../../saved_model/I2U/{dir_name}/{train_ID}/config_sentence.yml")
 
     for epoch in range(start_epoch, epochs):
-        # recent_bleu4, top5acc_avg, losses_avg = validate(
-        #     val_loader, 
+        # recent_bleu4 = validate_beam(
+        #     val_loader_beam, 
         #     model, 
         #     criterion
         # )
@@ -204,12 +228,22 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
         padding_mask = padding_mask.to(device)
 
         # Forward prop.
-        logits, encoded_seq, decode_lengths, sort_ind = model(
+        logits, encoded_seq, decode_lengths, sort_ind, kl_loss = model(
             imgs,
             caps,
             padding_mask,
             caplens
         )
+        # x = model.embed(caps)
+        # x = model.pos_encoder(x)
+        # z = model.sentence_encoder(x, src_key_padding_mask = padding_mask)
+        # z = z * padding_mask.logical_not().unsqueeze(2)
+        # z = z.sum(dim = 1)/ caplens.unsqueeze(1)
+        # mu = model.mu(z)  # (batch, sentence_embed)
+        # imgs, gx = model.image_encoder(imgs[0].unsqueeze(0))
+        # action = imgs.flatten()
+        # action = torch.cat([action, mu[0].flatten()]).unsqueeze(0)
+        # seq = model.decode(action=action, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=130, beam_size=10)
 
         # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
         targets = encoded_seq[:, 1:]
@@ -220,7 +254,7 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
         targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
 
         # Calculate loss
-        loss = criterion(scores, targets)
+        loss = criterion(scores, targets) + kl_weight*kl_loss
 
         # Back prop.
         optimizer.zero_grad()
@@ -256,6 +290,62 @@ def train(train_loader, model, criterion, optimizer, epoch, writer):
                                                                           data_time=data_time, loss=losses,
                                                                           top5=top5accs))
 
+def validate_beam(val_loader, model, criterion):
+    """
+        Bleu-4 Score should not be computed by decoded seqs from GT ans.
+        It should compute between generated sequence (by beam-search or other generative decoding)
+        and the GT seqs.
+    """
+    model.eval()
+    batch_time = AverageMeter()
+    # We don't have loss or accuracy if we use beam search to decode.
+    # losses = AverageMeter()
+    # top5accs = AverageMeter()
+    bleu_4 = AverageMeter()
+    start = time.time()
+
+    start_unit = word_map["<start>"]
+    end_unit = word_map["<end>"]
+
+    refs = list() # GT captions
+    hypos = list() # pred captions
+    for i, (imgs, caps, caplens, padding_mask, all_caps, all_padding_mask) in enumerate(iter(val_loader)):
+        imgs = imgs.to(device)
+        caps = caps.to(device)
+        caplens = caplens.to(device)
+        caplens = caplens.squeeze()
+        padding_mask = padding_mask.to(device)
+        all_caps = all_caps.to(device)
+        all_padding_mask = all_padding_mask.to(device)
+
+        pred_seq = model.decode(
+            start_unit = start_unit,
+            end_unit = end_unit,
+            image = imgs,
+            max_len = 150,
+            beam_size = 5,
+        )
+        if len(pred_seq) == 0:
+            continue
+
+        pred_seq = [w for w in pred_seq if w not in {word_map['<start>'], word_map['<pad>']}]
+        hypos.append(pred_seq)
+        # hypos
+
+        for j in range(all_caps.shape[0]):
+            img_caps = all_caps[j].tolist()
+            img_captions = list(
+                map(lambda c: [w for w in c if w not in {word_map['<start>'], word_map['<pad>']}],
+                    img_caps))  # remove <start> and pads
+            refs.append(img_captions)
+        assert len(hypos) == len(refs)
+
+    bleu_4 = corpus_bleu(refs, hypos)
+        # all_caps = all_caps[sort_ind]  # because images were sorted in the decoder
+        # 
+
+    return bleu_4
+
 def validate(val_loader, model, criterion): # -> bleu-4, accuracy
     model.eval()
     batch_time = AverageMeter()
@@ -276,7 +366,7 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
             all_caps = all_caps.to(device)
             all_padding_mask = all_padding_mask.to(device)
 
-            logits, encoded_seq, decode_lengths, sort_ind = model(
+            logits, encoded_seq, decode_lengths, sort_ind, kl_loss = model(
                 imgs,
                 caps,
                 padding_mask,
@@ -287,7 +377,7 @@ def validate(val_loader, model, criterion): # -> bleu-4, accuracy
             scores, _, _, _ = pack_padded_sequence(logits, decode_lengths, batch_first=True, enforce_sorted=False)
             targets, _, _, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True, enforce_sorted=False)
             
-            loss = criterion(scores, targets)
+            loss = criterion(scores, targets) + kl_weight*kl_loss
 
             # Keep track of current validations
             losses.update(loss.item(), sum(decode_lengths))

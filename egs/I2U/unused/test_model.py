@@ -1,5 +1,5 @@
 import torch
-from utils import *       #changed
+from transformer_I2S.egs.I2U.utils_previous import *       #changed
 from models import TransformerLM, TransformerConditionedLM
 import pickle
 from imageio import imread

@@ -89,6 +89,8 @@ class TransformerLM(nn.Module):
         ):
         super().__init__()
         self.d_model = d_model
+        self.nhead = nhead
+        self.num_layers = num_layers
         self.vocab_size = vocab_size
         # Enbedding
         self.embed = nn.Embedding(vocab_size, d_model)
@@ -182,8 +184,9 @@ class TransformerLM(nn.Module):
 
         args : 
             img_len : input image_features len. 
-                        e.g.: [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
-                        img_len = feature_size x feature_size
+                e.g.: 
+                [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
+                img_len = feature_size x feature_size
             seq_len : input seq len. e.g.: number of tokens.
         e.g.:
         if img_len = 4, seq_len = 5, it'll be like:
@@ -224,8 +227,9 @@ class TransformerLM(nn.Module):
 
         args : 
             img_len : input image_ features len. 
-                        e.g.: [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
-                        img_len = feature_size x feature_size
+                e.g.: 
+                [batch, feature_size, feature_size, dim] -> [batch, feature_size x feature_size, dim]
+                img_len = feature_size x feature_size
             seq_len : input seq len. e.g.: number of tokens.
         
         Note :
@@ -343,7 +347,10 @@ class TransformerConditionedLM(TransformerLM):
         self.init_weights()
     
     def get_image_features(self, imgs):
-        return self.image_encoder(imgs)
+        imgs, gx = self.image_encoder(imgs)
+        if self.use_refine_encoder:
+            gx, imgs = self.refine_encoder(imgs)
+        return imgs, gx
 
     def prefuse_gx(self, x, gx, seq_padding_mask):
         if self.use_global_feature:
@@ -351,13 +358,19 @@ class TransformerConditionedLM(TransformerLM):
                 # Here we don't use the global feature the same way as PureT:
                 # We cat [gx, x] in dim = 1, instead of dim = 2 (expanding the feature)
                 gx = gx.unsqueeze(dim = 1)
+            if gx.size(0) == 1 and x.size(0) != 1:
+                # expand gx to the batch/beam size of x
+                gx = gx.expand(x.size(0), 1, gx.size(2))
             decoder_input = torch.cat([gx,x], dim = 1)
             short_cut = decoder_input
             decoder_input = self.prefusion_layer(decoder_input)
             decoder_input = decoder_input + short_cut
             decoder_input = self.prefusion_norm(decoder_input)
             # besides, the padding mask should be changed
-            decoder_input_padding_mask = self.generate_cat_key_padding_mask(img_len=1, padding_mask=seq_padding_mask).to(x.device)
+            if seq_padding_mask is not None:
+                decoder_input_padding_mask = self.generate_cat_key_padding_mask(img_len=1, padding_mask=seq_padding_mask).to(x.device)
+            else:
+                decoder_input_padding_mask = seq_padding_mask
             decoder_input_attn_mask = self.generate_VALLE_mask(img_len=1, seq_len=decoder_input.size(dim=1)-1).to(x.device)
         else:
             decoder_input = x
@@ -386,14 +399,14 @@ class TransformerConditionedLM(TransformerLM):
         '''
         # imgs, gx = self.image_encoder(imgs)
         imgs, gx = self.get_image_features(imgs)
-        if self.use_refine_encoder:
-            '''
-                Here if use_global_feature is True:
-                gx will be extracted in advance and refined together.
-                Otherwise,
-                gx will be the mean pooling of the refined features.
-            '''
-            gx, imgs = self.refine_encoder(imgs)
+        # if self.use_refine_encoder:
+        #     '''
+        #         Here if use_global_feature is True:
+        #         gx will be extracted in advance and refined together.
+        #         Otherwise,
+        #         gx will be the mean pooling of the refined features.
+        #     '''
+        #     gx, imgs = self.refine_encoder(imgs)
             
         decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, gx, seq_padding_mask)
 
@@ -424,8 +437,115 @@ class TransformerConditionedLM(TransformerLM):
         # [Batch, 49 * 2048 + sentence_embed]
         assert action.size(-1) >= 49*2048, "Action size too small"
         imgs = action[:, :49*2048].view(1, 49, 2048)
+        gx = imgs.mean(1)
+        if self.use_refine_encoder:
+            gx, imgs = self.refine_encoder(imgs)
         # imgs = imgs.to(device)
-        return imgs
+        return imgs, gx
+    
+    def beam_search(
+            self,
+            imgs,
+            gx,
+            beam_size,
+            start_unit,
+            end_unit,
+            max_len,
+            device
+        ):
+        '''
+            NOTE:
+            gx can be None, or size (1, (1), d_model). prefuse_gx function will expand it.
+            imgs have to be (beam_size, 49, d_model), consider the following RL module.
+        '''
+
+        k = beam_size
+            
+        # Tensor to store top k previous words at each step; now they're just <start>
+        k_prev_words = torch.LongTensor([[start_unit]] * k).to(device)  # (k, 1)
+        # Tensor to store top k sequences; now they're just <start>
+        seqs = k_prev_words  # (k, 1)
+        # Tensor to store top k sequences' scores; now they're just 0
+        top_k_scores = torch.zeros(k, 1).to(device)  # (k, 1)
+        # Lists to store completed sequences and scores
+        complete_seqs = list()
+        complete_seqs_scores = list()
+        # Start decoding
+        step = 1
+        # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+
+        while True:
+            # first version
+            # gx = gx_origin.expand(k, 1, imgs.size(-1))
+            # imgs = imgs_origin.expand(k, imgs.size(-2), imgs.size(-1))
+
+            x = self.embed(seqs)  # (1, seq, d_model)
+            x = self.pos_encoder(x)  # (seq, 1, d_model)
+            x, pad_mask, attn_mask = self.prefuse_gx(x, gx = gx, seq_padding_mask = None)
+            
+            x = self.decoder(
+                tgt = x, 
+                memory = imgs, 
+                tgt_mask = attn_mask, 
+                tgt_key_padding_mask = pad_mask
+            )
+
+            # first version
+            # if self.use_global_feature:
+            #     decoder_input = torch.cat([gx,x], dim = 1)
+            #     short_cut = decoder_input
+            #     decoder_input = self.prefusion_layer(decoder_input)
+            #     decoder_input = decoder_input + short_cut
+            #     decoder_input = self.prefusion_norm(decoder_input)
+            # else:
+            #     decoder_input = x
+            # mask = self.generate_VALLE_mask(1, x.size(1)).to(device)
+            # x = self.decoder(decoder_input, imgs, mask) # 解码时必须有mask， 为什么？
+
+            scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
+            scores = F.log_softmax(scores, dim=1)
+            # Add
+            scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
+            # For the first step, all k points will have the same scores (since same k previous words, h, c)
+            if step == 1:
+                top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
+            else:
+                # Unroll and find top scores, and their unrolled indices
+                top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
+            # Convert unrolled indices to actual indices of scores
+            prev_word_inds = torch.div(top_k_words, self.vocab_size, rounding_mode="floor")  # (s)
+            next_word_inds = top_k_words % self.vocab_size  # (s)
+            # Add new words to sequences
+            seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
+            # Which sequences are incomplete (didn't reach <end>)?
+            incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if next_word != end_unit]
+            complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
+            # Set aside complete sequences
+            if len(complete_inds) > 0:
+                complete_seqs.extend(seqs[complete_inds].tolist())
+                complete_seqs_scores.extend(top_k_scores[complete_inds])
+            k -= len(complete_inds)  # reduce beam length accordingly
+            # Proceed with incomplete sequences
+            if k == 0:
+                break
+            seqs = seqs[incomplete_inds]
+            imgs = imgs[prev_word_inds[incomplete_inds]]
+            top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
+            k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
+            # Break if things have been going on too long
+            # print(k, step)
+            # print(seqs)
+            if step > max_len:
+                break
+            step += 1
+            
+        # print(seqs)
+        if len(complete_seqs_scores) != 0:
+            i = complete_seqs_scores.index(max(complete_seqs_scores))
+            seq = complete_seqs[i]
+        else:
+            seq = []
+        return seq
 
     def decode(
         self,
@@ -447,9 +567,11 @@ class TransformerConditionedLM(TransformerLM):
             if action is not None:
                 # assert action.size(-1) >= 49*self.d_model, "Action size too small"
                 # imgs = action[:, :49*self.d_model].view(1, 49, self.d_model)
-                imgs = self.action_to_image(action)
-                imgs = imgs.to(device)
-                gx = imgs.mean(1)
+                imgs, gx = self.action_to_image(action)
+                # imgs = imgs.to(device)
+                # gx = imgs.mean(1)
+                # if self.use_refine_encoder:
+                #     gx, imgs = self.refine_encoder
             elif img is not None:
                 img = img.to(device)
                 # print(device)
@@ -461,99 +583,35 @@ class TransformerConditionedLM(TransformerLM):
                 print("Input at least one from: Image or Action")
                 raise ValueError
             
-            if self.use_refine_encoder:
-                '''
-                here gx [1, d_model]
-                imgs    [1, 196, d_model]
-                '''
-                gx, imgs = self.refine_encoder(imgs)
+            # if self.use_refine_encoder:
+            #     '''
+            #     here gx [1, d_model]
+            #     imgs    [1, 196, d_model]
+            #     '''
+            #     gx, imgs = self.refine_encoder(imgs)
             
-            gx_origin = gx
-            imgs_origin = imgs
-
-            k = beam_size
+            # gx_origin = gx
+            # imgs_origin = imgs
+            imgs = imgs.expand(beam_size, imgs.size(1), imgs.size(2))
             
-            # Tensor to store top k previous words at each step; now they're just <start>
-            k_prev_words = torch.LongTensor([[start_unit]] * k).to(device)  # (k, 1)
-            # Tensor to store top k sequences; now they're just <start>
-            seqs = k_prev_words  # (k, 1)
-            # Tensor to store top k sequences' scores; now they're just 0
-            top_k_scores = torch.zeros(k, 1).to(device)  # (k, 1)
-            # Lists to store completed sequences and scores
-            complete_seqs = list()
-            complete_seqs_scores = list()
-            # Start decoding
-            step = 1
-            # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
 
-            while True:
-                gx = gx_origin.expand(k, 1, imgs.size(-1))
-                imgs = imgs_origin.expand(k, imgs.size(-2), imgs.size(-1))
-                x = self.embed(seqs)  # (1, seq, d_model)
-                x = self.pos_encoder(x)  # (seq, 1, d_model)
-                if self.use_global_feature:
-                    decoder_input = torch.cat([gx,x], dim = 1)
-                    short_cut = decoder_input
-                    decoder_input = self.prefusion_layer(decoder_input)
-                    decoder_input = decoder_input + short_cut
-                    decoder_input = self.prefusion_norm(decoder_input)
-                else:
-                    decoder_input = x
-                mask = self.generate_VALLE_mask(1, x.size(1)).to(device)
-                # torch.save(decoder_input, "./inter_tensor.pt")
-                # if step == 90:
-                #     decoder_input = torch.load("./inter_tensor.pt")
+            # beam search takes:
+            # beam_size， start_unit, end_unit, max_len
+            # imgs (decoder memory), [beam, 49, d_model]
+            # gx (global feature), [1, (1), d_model] or None.
 
-                # TODO:
-                '''
-                    def beam_search():
-                '''
-                x = self.decoder(decoder_input, imgs, mask) # 解码时必须有mask， 为什么？
-                # x = self.decoder(decoder_input, imgs)
-                scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
-                scores = F.log_softmax(scores, dim=1)
-                # Add
-                scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
-                # For the first step, all k points will have the same scores (since same k previous words, h, c)
-                if step == 1:
-                    top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
-                else:
-                    # Unroll and find top scores, and their unrolled indices
-                    top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
-                # Convert unrolled indices to actual indices of scores
-                prev_word_inds = torch.div(top_k_words, self.vocab_size, rounding_mode="floor")  # (s)
-                next_word_inds = top_k_words % self.vocab_size  # (s)
-                # Add new words to sequences
-                seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
-                # Which sequences are incomplete (didn't reach <end>)?
-                incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if next_word != end_unit]
-                complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
-                # Set aside complete sequences
-                if len(complete_inds) > 0:
-                    complete_seqs.extend(seqs[complete_inds].tolist())
-                    complete_seqs_scores.extend(top_k_scores[complete_inds])
-                k -= len(complete_inds)  # reduce beam length accordingly
-                # Proceed with incomplete sequences
-                if k == 0:
-                    break
-                seqs = seqs[incomplete_inds]
-                imgs = imgs[prev_word_inds[incomplete_inds]]
-                top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
-                k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
-                # Break if things have been going on too long
-                # print(k, step)
-                # print(seqs)
-                if step > max_len:
-                    break
-                step += 1
-                
-            # print(seqs)
-            if len(complete_seqs_scores) != 0:
-                i = complete_seqs_scores.index(max(complete_seqs_scores))
-                seq = complete_seqs[i]
-            else:
-                seq = []
+            seq = self.beam_search(
+                imgs=imgs,
+                gx=gx,
+                beam_size=beam_size,
+                start_unit=start_unit,
+                end_unit=end_unit,
+                max_len=max_len,
+                device=device
+            )
+
             return seq
+        
 
 class TransformerSentenceLM(TransformerConditionedLM):
     def __init__(
@@ -669,8 +727,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
             
         # imgs, gx = self.image_encoder(imgs)
         imgs, gx = self.get_image_features(imgs)
-        if self.use_refine_encoder:
-            gx, imgs = self.refine_encoder(imgs)
+        # if self.use_refine_encoder:
+        #     gx, imgs = self.refine_encoder(imgs)
         
         decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, gx, seq_padding_mask)
        
@@ -700,6 +758,9 @@ class TransformerSentenceLM(TransformerConditionedLM):
     def action_to_image(self, action, beam_size):
         if action.size(-1) > 49*2048:
             fmap = action[:, :49*2048].view(1, 49, 2048)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
             embed = action[:, 49*2048:]
             embed = self.make_memory(embed)
             embed = embed.unsqueeze(1)
@@ -707,8 +768,11 @@ class TransformerSentenceLM(TransformerConditionedLM):
             m = m.expand(beam_size, 50, 2048)
         else:
             fmap = action[:, :49*2048].view(1, 49, 2048)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
             m = fmap.expand(beam_size, 49, 2048)
-        return m
+        return m, gx
     
     @torch.inference_mode()
     def decode(
@@ -738,77 +802,20 @@ class TransformerSentenceLM(TransformerConditionedLM):
             # else:
             #     fmap = action[:, :49*2048].view(1, 49, 2048)
             #     m = fmap.expand(beam_size, 49, 2048)
-            m = self.action_to_image(action, beam_size)
-        elif image is None:
+            m, gx = self.action_to_image(action, beam_size)
+        elif image is not None:
             # imgs, gx = self.image_encoder(imgs)
             imgs, gx = self.get_image_features(image)
             m = imgs 
             m = m.expand(beam_size, 49, self.d_model)
 
-        k = beam_size
-        # Tensor to store top k previous words at each step; now they're just <start>
-        k_prev_words = torch.LongTensor([[start_unit]] * k).to(m.device)  # (k, 1)
-        # Tensor to store top k sequences; now they're just <start>
-        seqs = k_prev_words  # (k, 1)
-        # Tensor to store top k sequences' scores; now they're just 0
-        top_k_scores = torch.zeros(k, 1).to(m.device)  # (k, 1)
-        # Lists to store completed sequences and scores
-        complete_seqs = list()
-        complete_seqs_scores = list()
-        # Start decoding
-        step = 1
-        # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
-        while True:
-            x = self.embed(seqs)
-            x = self.pos_encoder(x)
-
-            x, pad_mask, attn_mask = self.prefuse_gx(x, gx=None, seq_padding_mask = None)
-
-            x = self.decoder(
-                tgt = x, 
-                memory = m, 
-                tgt_mask = attn_mask, 
-                tgt_key_padding_mask = pad_mask
-                )
-            
-            scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
-            scores = F.log_softmax(scores, dim=1)
-            # Add
-            scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
-            # For the first step, all k points will have the same scores (since same k previous words, h, c)
-            if step == 1:
-                top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
-            else:
-                # Unroll and find top scores, and their unrolled indices
-                top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
-            # Convert unrolled indices to actual indices of scores
-            prev_word_inds = torch.div(top_k_words, self.vocab_size, rounding_mode="floor")  # (s)
-            next_word_inds = top_k_words % self.vocab_size  # (s)
-            # Add new words to sequences
-            seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
-            # Which sequences are incomplete (didn't reach <end>)?
-            incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if next_word != end_unit]
-            complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
-            # Set aside complete sequences
-            if len(complete_inds) > 0:
-                complete_seqs.extend(seqs[complete_inds].tolist())
-                complete_seqs_scores.extend(top_k_scores[complete_inds])
-            k -= len(complete_inds)  # reduce beam length accordingly
-            # Proceed with incomplete sequences
-            if k == 0:
-                break
-            seqs = seqs[incomplete_inds]
-            m = m[prev_word_inds[incomplete_inds]]
-            top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
-            k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
-            # Break if things have been going on too long
-            if step > max_len:
-                break
-            step += 1
-        
-        if len(complete_seqs_scores) != 0:
-            i = complete_seqs_scores.index(max(complete_seqs_scores))
-            seq = complete_seqs[i]
-        else:
-            seq = []
+        seq = self.beam_search(
+                imgs=m,
+                gx=gx,
+                beam_size=beam_size,
+                start_unit=start_unit,
+                end_unit=end_unit,
+                max_len=max_len,
+                device=m.device
+            )
         return seq
