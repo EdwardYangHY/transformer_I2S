@@ -1,23 +1,21 @@
 import time
+import sys
+import yaml
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence
-from models.models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
 from datasets import *
-# from utils_LM import *       #changed
 from utils import *
-from nltk.translate.bleu_score import corpus_bleu
-# from torcheval.metrics.text import Perplexity
-# from torch.optim.lr_scheduler import LambdaLR
 import shutil
 import trainer
 
 from torch.utils.tensorboard import SummaryWriter
 
-import yaml
+sys.path.append("./models")
+from models import TransformerLM, TransformerConditionedLM, TransformerSentenceLM
+
 config_path = "../../config_LM.yml"
 with open(config_path, 'r') as yml:
     config = yaml.safe_load(yml)
