@@ -27,13 +27,13 @@ from train import load_model
 from text import text_to_sequence
 
 
-sys.path.append("../I2U")
+sys.path.append("../I2U/models")
 # from models import TransformerSentenceLM
+from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
 from models_k import TransformerVAEwithCNN
 
 with open('../../config.yml') as yml:
     config = yaml.safe_load(yml)
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 is_debug = True if sys.gettrace() else False
@@ -55,6 +55,44 @@ sentence_encoder.load_state_dict(torch.load("../../saved_model/U2U/transformer_c
 sentence_encoder.eval()
 sentence_encoder.to(device)
 
+# config["u2u"] = {}
+# config["u2u"]["d_embed"] = 8
+
+# model_path = "../../saved_model/I2U/Komatsu_4_captions_all_224/beam_no_uLM_8_sentence"
+# # model_path = "../../saved_model/I2U/Komatsu_4_captions_all_224/beam_gated_uLM_8_sentence"
+# # model_path = "../../saved_model/I2U/Komatsu_4_captions_all_224/beam_ungated_uLM_8_sentence"
+# word_map_path="/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/SpokenCOCO_LibriSpeech/WORDMAP_coco_1_cap_per_img_1_min_word_freq.json"
+# # Load word map (word2ix)
+# # global word_map, rev_word_map, special_words
+# with open(word_map_path) as j:
+#     word_map = json.load(j)
+# rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+# special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+
+# # i2u_model = load_I2U(model_path, word_map, device)
+# config_path = glob(model_path+"/config*.yml")[0]
+# model_checkpoint = glob(model_path+"/*BEST*.tar")[0 ]
+
+# with open(config_path, 'r') as yml:
+#     model_config = yaml.safe_load(yml)
+
+# model_params = model_config["i2u"]["model_params"]
+# model_params['vocab_size'] = len(word_map)
+# model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
+
+# params = model_checkpoint.split("/")[-2].split("_")
+# if "gated" in params:
+#     sentence_encoder = TransformerSentenceLM_FixedImg_gated(**model_params)
+# else:
+#     sentence_encoder = TransformerSentenceLM_FixedImg(**model_params)
+# sentence_encoder.load_state_dict(torch.load(model_checkpoint)["model_state_dict"])
+
+# # sentence_encoder = load_i2u(model_checkpoint, **model_params)
+# sentence_encoder.eval()
+# sentence_encoder.to(device)
+
+
+
 # U2S
 print("Preparing U2S model")
 hparams = create_hparams()
@@ -74,7 +112,7 @@ config_file = os.path.join(os.path.split(checkpoint_file)[0], 'config.json')
 with open(config_file) as f:
         data = f.read()
 
-global h
+# global h
 json_config = json.loads(data)
 h = AttrDict(json_config)
 generator = Generator(h).to(device)

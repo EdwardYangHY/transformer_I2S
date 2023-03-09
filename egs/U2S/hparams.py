@@ -1,8 +1,11 @@
 import tensorflow as tf
-from text import symbols
+# from text import symbols
 import yaml
 with open('../../config.yml', 'r') as yml:
     config = yaml.safe_load(yml)
+
+# with open('/net/papilio/storage2/yhaoyuan/transformer_I2S/config.yml', 'r') as yml:
+#     config = yaml.safe_load(yml)
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):

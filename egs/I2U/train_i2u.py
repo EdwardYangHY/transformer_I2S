@@ -7,7 +7,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
 from datasets import *
-from utils import *       #changed
+from utils_i2u import *       #changed
 import shutil
 import trainer
 
@@ -153,31 +153,32 @@ def main():
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
             scheduler.step()
 
-        recent_bleu4 = trainer.validate_beam(
-            val_loader=val_loader_beam,
-            model=model,
-            start_unit=word_map["<start>"],
-            end_unit=word_map["<end>"],
-            epoch=epoch,
-            writer=writer,
-            decode_num=10,
-            device=device
-        )
-
-        # trainer.validate(
-        #     val_loader=val_loader,
+        # recent_bleu4 = trainer.validate_beam(
+        #     val_loader=val_loader_beam,
         #     model=model,
-        #     criterion=criterion,
-        #     epoch=epoch,
-        #     writer=writer,
-        #     device=device,
         #     start_unit=word_map["<start>"],
         #     end_unit=word_map["<end>"],
-        #     print_freq=print_freq,
-        #     kl_weight=kl_weight
+        #     epoch=epoch,
+        #     writer=writer,
+        #     decode_num=100,
+        #     device=device
         # )
+        # print(f"Beam Search Validation: {recent_bleu4}")
+        
+        recent_bleu4, top5acc, loss = trainer.validate(
+            val_loader=val_loader,
+            model=model,
+            criterion=criterion,
+            epoch=epoch,
+            writer=writer,
+            device=device,
+            start_unit=word_map["<start>"],
+            end_unit=word_map["<end>"],
+            print_freq=print_freq,
+            kl_weight=kl_weight
+        )
 
-        print(f"Beam Search Validation: {recent_bleu4}")
+        
 
         is_best_bleu4 = recent_bleu4 > best_bleu4
         best_bleu4 = max(recent_bleu4, best_bleu4)

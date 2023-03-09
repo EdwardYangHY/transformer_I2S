@@ -7,5 +7,6 @@ egs/dino/
 egs/RL/spolacq*/
 egs/RL*/spolacq*/
 egs/RL*/logs*/
+egs/RL*/results
 # egs/*/__pycache__
 hifigan/
