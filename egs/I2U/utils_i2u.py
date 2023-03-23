@@ -21,6 +21,8 @@ from torch.optim.lr_scheduler import LambdaLR
 
 # dir_name = config["i2u"]["dir_name"]
 
+resolution = 224
+
 def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, 
                        output_folder, dir_name, max_len=100):
     with open(f'../../data/I2U/processed/{dir_name}/train_image_paths.pickle', 'rb') as f:
@@ -66,7 +68,7 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
             h.attrs['captions_per_image'] = captions_per_image
 
             # Create dataset inside HDF5 file to store images
-            images = h.create_dataset('images', (len(impaths), 3, 256, 256), dtype='uint8')
+            images = h.create_dataset('images', (len(impaths), 3, resolution, resolution), dtype='uint8')
 
             print("\nReading %s images and captions, storing to file...\n" % split)
 
@@ -97,7 +99,6 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
                     img = np.concatenate([img, img, img], axis=2)
                 # img = imresize(img, (256, 256))
                 # resolution = int(config['data']['image_resolution'])
-                resolution = 224
                 img = np.array(Image.fromarray(img).resize((resolution, resolution)))
                 img = img.transpose(2, 0, 1)
                 assert img.shape == (3, resolution, resolution)
@@ -246,6 +247,28 @@ def save_checkpoint(data_name, epoch, model, optimizer, metric_name, metric_valu
     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
     if is_best:
         torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric_name}_BEST_' + filename)
+
+def save_checkpoint_LM(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None):
+    '''
+        使用的scheduel， 是否需要存储其变化的lr？
+    '''
+    state = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'metric_name': metric_name,
+        'metric_value': metric_value,
+    }
+    filename = 'checkpoint_' + data_name + '.pth.tar'
+    ### If use GPU, save differently
+    if device != None:
+        if device.type=='cuda':
+            filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
+    ###
+    torch.save(state, f"../../saved_model/LM/{dir_name}/{train_ID}/" + filename)
+    # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
+    if is_best:
+        torch.save(state, f'../../saved_model/LM/{dir_name}/{train_ID}/{metric_name}_BEST_' + filename)
 
 def load_checkpoint(checkpoint_path, model, optimizer, device):
     checkpoint = checkpoint_path

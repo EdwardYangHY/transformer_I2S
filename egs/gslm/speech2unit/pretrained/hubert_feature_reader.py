@@ -32,8 +32,26 @@ class HubertFeatureReader:
         if self.use_cuda:
             self.model.cuda()
 
-    def read_audio(self, path, ref_len=None, channel_id=None):
+    def read_audio_origin(self, path, ref_len=None, channel_id=None):
         wav, sr = sf.read(path)
+        if channel_id is not None:
+            assert wav.ndim == 2, \
+                f"Expected stereo input when channel_id is given ({path})"
+            assert channel_id in [1, 2], \
+                "channel_id is expected to be in [1, 2]"
+            wav = wav[:, channel_id-1]
+        if wav.ndim == 2:
+            wav = wav.mean(-1)
+        assert wav.ndim == 1, wav.ndim
+        assert sr == self.task.cfg.sample_rate, sr
+        if ref_len is not None and abs(ref_len - len(wav)) > 160:
+            print(f"ref {ref_len} != read {len(wav)} ({path})")
+        return wav
+
+    def read_audio(self, path, ref_len=None, channel_id=None):
+        # wav, sr = sf.read(path)
+        # if sr != self.task.cfg.sample_rate:
+        wav, sr = librosa.load(path, self.task.cfg.sample_rate, dtype="float64")
         if channel_id is not None:
             assert wav.ndim == 2, \
                 f"Expected stereo input when channel_id is given ({path})"

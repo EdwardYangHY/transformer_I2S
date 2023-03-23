@@ -37,6 +37,12 @@ def train(train_loader, model, criterion, optimizer, epoch, writer, grad_clip, d
         caplens = caplens.squeeze()
         padding_mask = padding_mask.to(device)
 
+        # Deep Copy before feed to models.
+        # imgs = imgs.clone().detach()
+        # caps = caps.clone().detach()
+        # caplens = caplens.clone().detach()
+        # padding_mask = padding_mask.clone().detach()
+
         # Forward prop.
         if kl_weight is None:
             logits, encoded_seq, decode_lengths, sort_ind = model(
@@ -70,7 +76,9 @@ def train(train_loader, model, criterion, optimizer, epoch, writer, grad_clip, d
 
         # Back prop.
         optimizer.zero_grad()
+        # loss_back_start = time.time()
         loss.backward()
+        # print(f"Loss Backward time: {time.time()-loss_back_start}")
 
         # Grad Clip preveting grad explosion
         if grad_clip is not None:
@@ -160,7 +168,7 @@ def validate_beam(val_loader, model, start_unit, end_unit, epoch, writer, decode
             break
 
     bleu_4 = corpus_bleu(refs, hypos)
-    writer.add_scalar('Valid/Bleu4', bleu_4, epoch)
+    writer.add_scalar('Valid/Bleu4_Beam', bleu_4, epoch)
 
     print(f"Valid Time: {time.time() - start}")
     return bleu_4

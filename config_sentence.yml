@@ -14,13 +14,27 @@ i2u:
   wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
   
   #### Used when training models
-  # captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
-  # min_word_freq: 1
-  # dir_name: VC_5_captions_224
-  
-  captions_per_image: 4 
+  captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   min_word_freq: 1
-  dir_name: Komatsu_4_captions_all_224
+  # dir_name: origin_5_captions_224
+  # dir_name: origin_5_captions_256
+  # dir_name: VC_5_captions_224
+  # dir_name: GTTS_5_captions_224
+  # dir_name: VC_5_captions
+  # dir_name: VC_5_captions_224_hubert
+  # dir_name: VC_5_captions_224_origin_wordmap
+  # dir_name: VC_5_captions_256
+  dir_name: VC_5_captions_288
+
+  # captions_per_image: 2 
+  # min_word_freq: 1
+  # dir_name: trimmed_mapping_SpeakerALL
+  
+  # captions_per_image: 4 
+  # min_word_freq: 1
+  # dir_name: Komatsu_4_captions_all_224
+  
+
 
   #### Model params
   # batch_size: 32
@@ -28,10 +42,10 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 64
+    batch_size: 64 # 64
     num_workers: 1
     grad_clip: 5.
-    lr: 1.0e-3 # set to 4.0e-4 if scheduler = False
+    lr: 1.0e-2 # set to 4.0e-4 if scheduler = False
     optimizer: "Adam" # [Adam, AdamW]
     epoch: 50 # 200
     warmup_epoch: 5 # 20 only make sense when use_scheduler = True
@@ -41,6 +55,8 @@ i2u:
     checkpoint_path: # /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/I2U/VC_5_captions_224/fixed_img_1024_no_sentence/bleu-4_BEST_checkpoint_coco_5_cap_per_img_1_min_word_freq_gpu.pth.tar
     gated_decoder: False
     load_uLM: False
+    freeze_uLM: False
+    freeze_uLM_hard: False
     
   model_params:
     d_model: 1024 # 2048

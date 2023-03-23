@@ -1,0 +1,6 @@
+/net/papilio/storage2/yhaoyuan/LAbyLM/audios_24k/
+3/225.wav
+5/225.wav
+11/225.wav
+19/225.wav
+29/225.wav

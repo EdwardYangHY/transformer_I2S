@@ -31,6 +31,7 @@ from text import text_to_sequence
 
 sys.path.append("./models")
 # from models import models_modified
+from models import TransformerConditionedLM, PositionalEncoding
 from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
 
 # config path需要更改
@@ -77,6 +78,12 @@ def load_i2u(checkpoint_path, **model_params):
         model = TransformerSentenceLM_FixedImg_gated(**model_params)
     else:
         model = TransformerSentenceLM_FixedImg(**model_params)
+    model.pos_encoder = PositionalEncoding(d_model=1024, max_len=152)
+    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+    return model
+
+def load_i2u_prev(checkpoint_path, **model_params):
+    model = TransformerConditionedLM(**model_params)
     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
     return model
 
@@ -103,8 +110,8 @@ def u2s2t(seq, tacotron2_model, generator, processor, asr_model):
     return transcription
 
 def load_images(data_path, split):
-    image_hdf5 = glob(data_path+f"/{split}*IMAGES.hdf5")[0]
-    image_names = glob(data_path+f"/{split}*NAMES.json")[0]
+    image_hdf5 = glob(data_path+f"/{split}*.hdf5")[0]
+    image_names = glob(data_path+f"/{split}*.json")[0]
     h = h5py.File(image_hdf5, 'r')
     images = h['images']
     with open(image_names, "r") as f:
@@ -114,7 +121,8 @@ def load_images(data_path, split):
 def get_transformed_img(img, transform): # -> torch.tensor
     # img = img.transpose(2, 0, 1) # (224, 224, 3) -> (3, 224, 224)
     img = torch.FloatTensor(img / 255.)
-    img = transform(img)
+    if transform is not None:
+        img = transform(img)
     return img.to(device)
 
 def get_image_info(image_name):
@@ -153,7 +161,15 @@ def judge_ans(transcription, image_name):
         right_ans = True
     return right_ans, right_name
 
-def main(model_path):
+def main(model_path=None):
+
+    if model_path is None:
+        # model_path = "../../saved_model/I2U/VC_5_captions_224/7*7_img_1024*16*12_99accuracy"
+        model_path = "../../saved_model/I2U/VC_5_captions/no_uLM_no_sen_refine_global"
+        word_map_path="../../data/processed/VC_5_captions/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
+    else:
+        word_map_path="../../data/processed/SpokenCOCO_LibriSpeech/WORDMAP_coco_1_cap_per_img_1_min_word_freq.json"
+    
     with open('../../config.yml') as yml:
         config = yaml.safe_load(yml)
     
@@ -168,6 +184,7 @@ def main(model_path):
     # tacotron2
     hparams = create_hparams()
     hparams.sampling_rate = 22050
+    hparams.max_decoder_steps = config["u2s"]["max_decoder_steps"]
     checkpoint_path = config["u2s"]["tacotron2"]
     tacotron2_model = load_model(hparams)
     tacotron2_model.load_state_dict(torch.load(checkpoint_path)['state_dict'])
@@ -211,9 +228,11 @@ def main(model_path):
 
     # model_path = "../../saved_model/I2U/VC_5_captions_224/beam_val_uLM_ungated_no_sen"
     # model_path = "../../saved_model/I2U/VC_5_captions_224/beam_val_uLM_gated_no_sen"
-    config_path = glob(model_path+"/config*.yml")[0]
-    model_checkpoint = glob(model_path+"/*BEST*.tar")[0 ]
-    word_map_path="/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/SpokenCOCO_LibriSpeech/WORDMAP_coco_1_cap_per_img_1_min_word_freq.json"
+    config_path = glob(model_path + "/config*.yml")[0]
+    # config_path = glob(model_path+"/*")
+    model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+    # word_map_path="../../data/processed/SpokenCOCO_LibriSpeech/WORDMAP_coco_1_cap_per_img_1_min_word_freq.json"
+
     # Load word map (word2ix)
     global word_map, rev_word_map, special_words
     with open(word_map_path) as j:
@@ -228,12 +247,18 @@ def main(model_path):
     model_params['vocab_size'] = len(word_map)
     model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
 
+
     i2u_model = load_i2u(model_checkpoint, **model_params)
+    # i2u_model = load_i2u_prev(model_checkpoint, **model_params)
     i2u_model.eval()
     i2u_model.to(device)
 
-    image_data_path = "../../data/RL"
+    image_resolution = 224
+
+    image_data_path = f"../../data/RL/{str(image_resolution)}"
+    # for split in ["TRAIN", "VAL", "TEST"]:
     for split in ["VAL", "TEST"]:
+    # for split in ["TRAIN"]:
         imgs, names = load_images(image_data_path, split)
         if is_debug:
             names = names[:10]
@@ -247,6 +272,7 @@ def main(model_path):
 
         for i in tqdm(range(len(names)), desc=f"Getting {split} Results"):
             img = get_transformed_img(imgs[i], transform)
+            # img = get_transformed_img(imgs[i], transform=None)
             img = img.unsqueeze(0)
             name = names[i]
             seqs = i2u_model.decode(image=img, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
@@ -274,3 +300,4 @@ if __name__ == "__main__":
                         help='directory to the saved i2u model')
     args = parser.parse_args()
     main(args.model_path)
+    # main()

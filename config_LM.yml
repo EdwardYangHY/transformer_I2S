@@ -18,8 +18,9 @@ i2u:
   min_word_freq: 1
   # dir_name: SpokenCOCO_LibriSpeech
   # dir_name: SpokenCOCO
-  dir_name: LibriSpeech
+  # dir_name: LibriSpeech
   # dir_name: VC_5_captions
+  dir_name: Libri_Light_small_hubert_256
 
   #### Model params
   # batch_size: 32
@@ -27,7 +28,7 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 64 # 128
+    batch_size: 128 # 128
     num_workers: 10
     grad_clip: 5.
     lr: 5.0e-4 # set to 4.0e-4 if scheduler = False

@@ -88,6 +88,9 @@ def main():
     
     if train_params["load_uLM"]:
         model.load_Pretrained_LM(LM_checkpoint)
+        if train_params["freeze_uLM"] and not train_params["gated_decoder"]:
+            model.freeze_LM()
+
 
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
 
@@ -119,15 +122,19 @@ def main():
     # Custom dataloaders
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
+    
+    transform = transforms.Compose([normalize])
+    # transform = None
+    
     train_loader = torch.utils.data.DataLoader(
-        CaptionDataset_transformer(data_folder, data_name, 'TRAIN', transform=transforms.Compose([normalize])),
+        CaptionDataset_transformer(data_folder, data_name, 'TRAIN', transform=transform),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
     val_loader = torch.utils.data.DataLoader(
-        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
+        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transform),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
     
     val_loader_beam = torch.utils.data.DataLoader(
-        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
+        CaptionDataset_transformer(data_folder, data_name, 'VAL', transform=transform),
         batch_size=1, shuffle=True, num_workers=workers, pin_memory=True)
     
     # Epochs
@@ -153,18 +160,10 @@ def main():
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
             scheduler.step()
 
-        # recent_bleu4 = trainer.validate_beam(
-        #     val_loader=val_loader_beam,
-        #     model=model,
-        #     start_unit=word_map["<start>"],
-        #     end_unit=word_map["<end>"],
-        #     epoch=epoch,
-        #     writer=writer,
-        #     decode_num=100,
-        #     device=device
-        # )
-        # print(f"Beam Search Validation: {recent_bleu4}")
-        
+        """
+            可以考虑每 10 个epoch 做一次完整的 beam search validation？
+            正常就用目前的validation就行 只是加一个罢了
+        """
         recent_bleu4, top5acc, loss = trainer.validate(
             val_loader=val_loader,
             model=model,
@@ -177,6 +176,19 @@ def main():
             print_freq=print_freq,
             kl_weight=kl_weight
         )
+
+        # if epoch%10 == 0:
+        #     recent_bleu4_beam = trainer.validate_beam(
+        #         val_loader=val_loader_beam,
+        #         model=model,
+        #         start_unit=word_map["<start>"],
+        #         end_unit=word_map["<end>"],
+        #         epoch=epoch,
+        #         writer=writer,
+        #         decode_num=600,
+        #         device=device
+        #     )
+        #     print(f"Beam Search Validation: {recent_bleu4_beam}")
 
         
 

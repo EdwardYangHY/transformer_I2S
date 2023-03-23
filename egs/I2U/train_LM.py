@@ -10,6 +10,7 @@ from datasets import *
 from utils_i2u import *
 import shutil
 import trainer
+from glob import glob
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -93,12 +94,14 @@ def main():
     global best_bleu4, best_accuracy, best_perplexity, checkpoint, start_epoch, data_name, word_map, device
 
     # Read word map
-    word_map_file = os.path.join(data_folder, 'WORDMAP_' + data_name + '.json')
+    # word_map_file = os.path.join(data_folder, 'WORDMAP_' + data_name + '.json')
+    word_map_file = glob(data_folder+"/WORDMAP*.json")[0]
     with open(word_map_file, 'r') as j:
         word_map = json.load(j)
 
     # Initialize / load checkpoint
     model_params['vocab_size'] = len(word_map)
+
     model = TransformerLM(**model_params)
 
     # optimizer = torch.optim.Adam(model.parameters(), train_params["lr"])
@@ -169,7 +172,7 @@ def main():
         best_perplexity = min(pp, best_perplexity)
         start = time.time()
 
-        save_checkpoint(
+        save_checkpoint_LM(
             data_name=data_name,
             epoch=epoch,
             model=model,

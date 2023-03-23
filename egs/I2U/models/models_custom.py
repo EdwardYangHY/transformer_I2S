@@ -37,12 +37,12 @@ from typing import Optional, Any, Union, Callable
 from torch import Tensor
 
 import yaml
-with open('../../config.yml', 'r') as yml:
-    config = yaml.safe_load(yml)
+# with open('../../config.yml', 'r') as yml:
+#     config = yaml.safe_load(yml)
 
-global MAX_LEN, BATCH_FIRST
-MAX_LEN = int(config['data']['max_len']) + 2
-refine_encoder_params = config["i2u"]["refine_encoder_params"]
+# global MAX_LEN, BATCH_FIRST
+# MAX_LEN = int(config['data']['max_len']) + 2
+# refine_encoder_params = config["i2u"]["refine_encoder_params"]
 
 class custom_TransformerDecoderLayer(nn.TransformerDecoderLayer):
     def __init__(

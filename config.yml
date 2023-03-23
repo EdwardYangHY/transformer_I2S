@@ -10,6 +10,7 @@ data:
 
 u2s:
   tacotron2: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
+  max_decoder_steps: 500
   #### If using gtts synthesized data, use the following Tacotron2 model ####
   # tacotron2: /net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/outdir_synthesized_gtts/checkpoint_455000
   
@@ -27,6 +28,7 @@ u2s:
 
 asr:
   model_path: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/ASR/wav2vec2-base-tuned/checkpoint-3000"
+  # model_path: "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/wav2vec2-base-tuned-ljs/checkpoint-4000"
 
 i2u:
   #### Used when inferencing
