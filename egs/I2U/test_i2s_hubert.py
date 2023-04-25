@@ -24,8 +24,9 @@ from judge_asr import judge_ans
 sys.path.append("./models")
 # from models import models_modified
 from models import TransformerConditionedLM
-from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
-
+from models_modified import TransformerSentenceLM_FixedImg_gated # TransformerSentenceLM_FixedImg
+from models_modified import TransformerSentenceLM_FixedImg_Pool
+from models_prompt import TransformerPrefixLM, prefix_Transformer
 # config path需要更改
 is_debug = True if sys.gettrace() else False
 
@@ -35,12 +36,18 @@ def load_i2u(checkpoint_path, **model_params):
     if "gated" in params:
         model = TransformerSentenceLM_FixedImg_gated(**model_params)
     else:
-        model = TransformerSentenceLM_FixedImg(**model_params)
+        # model = TransformerSentenceLM_FixedImg(**model_params)
+        model = TransformerSentenceLM_FixedImg_Pool(**model_params)
     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
     return model
 
 def load_i2u_prev(checkpoint_path, **model_params):
     model = TransformerConditionedLM(**model_params)
+    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+    return model
+
+def load_i2u_prefix(checkpoint_path, **model_params):
+    model = prefix_Transformer(**model_params)
     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
     return model
 
@@ -68,32 +75,28 @@ def evaluate(model_path, word_map_path):
     global device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    #### OOD u2s from LJSpeech, should use hifigan of 22050 sr
-    # tacotron_max_decoder_step = config["u2s"]["max_decoder_steps"]
-    # tacotron_checkpoint_path = "../../saved_model/U2S/outdir_origin/checkpoint_76000"
+    ### use pretrained u2s from gslm ###
+    tts_model_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_tts_checkpoint_best.pt"
+    max_decoder_steps = 500
+    code_dict_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_code_dict"
+    # hifigan_checkpoint_path = config["u2s"]['hifigan']
+    hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
+    tacotron_model, tts_datasets = load_tacotron2_hubert(model_path=tts_model_path, code_dict_path=code_dict_path, max_decoder_steps=max_decoder_steps)
+    asr_checkpoint_path = config["asr"]["model_path"]
+
+    ### Use u2s train by VC
+    # tacotron_max_decoder_step = 500
+    # tacotron_checkpoint_path = "../../saved_model/U2S/outdir_VC_hubert_22050_102_warm/checkpoint_33000"
     # hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
     # asr_checkpoint_path = config["asr"]["model_path"]
-
-    #### in-domain u2s from VC data, should use hifigan of 24000 sr
-    tacotron_max_decoder_step = 500
-    # tacotron_checkpoint_path = "../../saved_model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
-    # hifigan_checkpoint_path = "../../hifigan/FOOD_V1_24K_Speaker3/generator_v1_24k"
-    tacotron_checkpoint_path = "../../saved_model/U2S/outdir_origin/checkpoint_76000"
-    hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
-    asr_checkpoint_path = config["asr"]["model_path"]
 
     # tacotron_model = load_tacotron2(
     #     tacotron_checkpoint_path, 
     #     max_decoder_step=tacotron_max_decoder_step,
-    #     sr=24000,
-    #     vocab_size=1024
+    #     sr=22050,
+    #     vocab_size=102
     # )
-    tacotron_model = load_tacotron2(
-        tacotron_checkpoint_path, 
-        max_decoder_step=tacotron_max_decoder_step,
-        sr=22050,
-        vocab_size=1024
-    )
+
     hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
     asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
 
@@ -124,8 +127,9 @@ def evaluate(model_path, word_map_path):
     model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
 
 
-    i2u_model = load_i2u(model_checkpoint, **model_params)
+    # i2u_model = load_i2u(model_checkpoint, **model_params)
     # i2u_model = load_i2u_prev(model_checkpoint, **model_params)
+    i2u_model = load_i2u_prefix(model_checkpoint, **model_params)
     i2u_model.eval()
     i2u_model.to(device)
 
@@ -152,16 +156,33 @@ def evaluate(model_path, word_map_path):
             # img = get_transformed_img(imgs[i], transform=None)
             img = img.unsqueeze(0)
             name = names[i]
+            # Test Action to Speech ---------------------------------------------------------------
+            # action, gx = i2u_model.image_encoder(img)
+            # action = action.flatten().unsqueeze(0)
+            # seqs = i2u_model.decode(action=action, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
+            # -------------------------------------------------------------------------------------
             seqs = i2u_model.decode(image=img, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
-            
-            words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
-            audio = u2s(
-                words=words,
-                tacotron2_model=tacotron_model,
-                hifigan_model=hifigan_model,
-                device=device
-                )
-            trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
+            # -------------------------------------------------------------------------------------
+
+            try:
+                words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
+                # audio = u2s(
+                #     words=words,
+                #     tacotron2_model=tacotron_model,
+                #     hifigan_model=hifigan_model,
+                #     device=device
+                #     )
+                audio = u2s_hubert(
+                    words=words,
+                    tacotron2_model=tacotron_model,
+                    tts_dataset=tts_datasets,
+                    hifigan_model=hifigan_model,
+                    device=device
+                    )
+                
+                trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
+            except:
+                trans = "U2S not successful."
             # trans = u2s2t(seq=seqs, tacotron2_model=tacotron_model, generator=hifigan_model, processor=asr_processor, asr_model=asr_model)
             
             right_ans, right_name =  judge_ans(trans, name)
@@ -172,7 +193,7 @@ def evaluate(model_path, word_map_path):
             if right_name:
                 count_name += 1
 
-        with open(model_path + f"/{split}_recognition_results_{image_resolution}_LJSpeech_U2S_debug_{is_debug}.txt", "w") as f:
+        with open(model_path + f"/{split}_recognition_results_{image_resolution}_LJS_U2S_22050.txt", "w") as f:
             f.write("%-20s\t\t%-20s\n"%("Recognition Accuracy", f"{count/len(names)}"))
             f.write("%-20s\t\t%-20s\n"%("Recog Name Accuracy", f"{count_name/len(names)}")+ "-"*100 +"\n")
             f.write("%-20s\t\t%-50s\t\t%-20s\n"%("Image Name", "Synthesized Answer", "Right Answer?")+ "-"*100+"\n")
@@ -182,13 +203,14 @@ def evaluate(model_path, word_map_path):
 
 
 def main():
-    # model_paths = ["../../saved_model/I2U/VC_5_captions_224_origin_wordmap/23-03-23_13:33:44_uLM_sentence",
-    #                "../../saved_model/I2U/VC_5_captions_224/23-03-23_14:09:44_uLM_sentence"]
-    # word_map_paths = ["../../data/processed/VC_5_captions_224_origin_wordmap/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
-    #                   "../../data/processed/VC_5_captions_224/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
-
-    model_paths = ["../../saved_model/I2U/origin_5_captions_256/baseline_lr-3_no_LM"]
-    word_map_paths = ["../../data/processed/origin_5_captions_256/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
+    # model_paths = ["../../saved_model/I2U/origin_5_captions_256/baseline_lr-3_no_LM",
+    #                "../../saved_model/I2U/origin_5_captions_256/lr-3_uLM"]
+    # word_map_paths = ["../../data/processed/origin_5_captions_256/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
+    #                   "../../data/processed/origin_5_captions_256/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
+    model_paths = ["../../saved_model/I2U/origin_5_captions_256_hubert/prefix_resolution_14_no_uLM",
+                   "../../saved_model/I2U/origin_5_captions_256_hubert/prefix_resolution_14_tune_image"]
+    word_map_paths = ["../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
+                      "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
 
     for model_path, word_map_path in zip(model_paths, word_map_paths):
         evaluate(model_path, word_map_path)

@@ -2,28 +2,28 @@ data:
   # store with absolute path
   # not implemented yet
   # Real Voice leaveout number
-  train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
-  valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
-  test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
+  # train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
+  # valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
+  # test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
+  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json
+  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/audios_target_3_mapping_captions.json
   max_len: 150
   image_resolution: 256
 
 u2s:
-  tacotron2: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
+  # In domain
+  # tacotron2: "../../saved_model/U2S/ourdir_mapping_warmstart_from_gtts/checkpoint_47000"
+
+  # Out of Domain
+  tacotron2: "../../saved_model/U2S/outdir_origin/checkpoint_76000"
   max_decoder_steps: 500
-  #### If using gtts synthesized data, use the following Tacotron2 model ####
-  # tacotron2: /net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/outdir_synthesized_gtts/checkpoint_455000
-  
-  # waveglow: "../../model/waveglow_256channels_universal_v5.pt"
   
   batch_size: 64
-  # filelists_train: "../../data/U2S/filelists_VC_5_captions/ljs_audio_text_train_filelist.txt"
-  # filelists_val: "../../data/U2S/filelists_VC_5_captions/ljs_audio_text_val_filelist.txt"
-  # filelists_train: "../../data/U2S/filelists_Origin_5_captions/ljs_audio_text_train_filelist.txt"
-  # filelists_val: "../../data/U2S/filelists_Origin_5_captions/ljs_audio_text_val_filelist.txt"
-  filelists_train: "../../data/U2S/filelists_VCTK/ljs_audio_text_train_filelist.txt"
-  filelists_val: "../../data/U2S/filelists_VCTK/ljs_audio_text_val_filelist.txt"
+  filelists_train: "../../data/U2S/filelists_gtts_hubert/ljs_audio_text_train_filelist.txt"
+  filelists_val: "../../data/U2S/filelists_gtts_hubert/ljs_audio_text_val_filelist.txt"
   
+  #### hifigan as vocoder of the system ####
+  # make sure that hifigan's sr are the same with tacotron2
   hifigan: "../../hifigan/FOOD_V1_24K_Speaker3/generator_v1_24k"
 
 asr:
@@ -34,10 +34,12 @@ i2u:
   #### Used when inferencing
   # model: "../../model/I2U/trimmed_mapping_SpeakerALL_Color/BEST_checkpoint_coco_2_cap_per_img_1_min_word_freq_gpu.pth.tar" # leave out colors
   # wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
-  model: "../../saved_model/I2U/VC_5_captions/23-02-10_20:10:09_sentence/bleu-4_BEST_checkpoint_coco_5_cap_per_img_1_min_word_freq_gpu.pth.tar"
+  # model: "../../saved_model/I2U/VC_5_captions/23-02-10_20:10:09_sentence/bleu-4_BEST_checkpoint_coco_5_cap_per_img_1_min_word_freq_gpu.pth.tar"
   # model_config: "../../saved_model/I2U/VC_5_captions/23-02-10_20:10:09_sentence/config.yml"
-  wordmap: "../../data/processed/VC_5_captions/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
-
+  # wordmap: "../../data/processed/VC_5_captions/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
+  model: ../../saved_model/I2U/Komatsu_4_captions_all_224/beam_no_uLM_8_sentence/bleu-4_BEST_checkpoint_coco_4_cap_per_img_1_min_word_freq_gpu.pth.tar
+  wordmap: ../../data/processed/Komatsu_4_captions_all_224/WORDMAP_coco_4_cap_per_img_1_min_word_freq.json
+  
   #### Used when training models
   captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   #captions_per_image: 1 # change it after LJS U2U
@@ -45,7 +47,7 @@ i2u:
   # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
   # dir_name: "encodec1"
   # dir_name: "trimmed_mapping_SpeakerALL_Color"
-  dir_name: VC_5_captions_224
+  dir_name: VC_5_captions_320
 
   #### Model params
   # batch_size: 32

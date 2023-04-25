@@ -10,13 +10,18 @@ from datasets import *
 from utils_i2u import *       #changed
 import shutil
 import trainer
+from glob import glob
 
 from torch.utils.tensorboard import SummaryWriter
+
+# from utils_i2u import *
+# from utils_synthesize import *
+# from judge_asr import judge_ans
 
 
 sys.path.append("./models")
 # from models import models_modified
-from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
+from models_modified import TransformerSentenceLM_FixedImg_Pool, TransformerSentenceLM_FixedImg_gated
 
 config_path = '../../config_sentence.yml'
 with open(config_path, 'r') as yml:
@@ -27,10 +32,20 @@ model_params = config["i2u"]["model_params"]
 train_params = config["i2u"]["train_params"]
 
 # Data parameters
-data_folder = f'../../data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+if os.path.exists(f'../../data/processed/{dir_name}/'):
+    data_folder = f'../../data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
+    data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
+else:
+    raise ValueError
+
 data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
 
-LM_checkpoint = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/PP_15.6512/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
+# if dir_name.split("_")[-1].lower() == "hubert" or dir_name.split("_")[-2].lower() == "hubert":
+if "hubert" in dir_name.lower().split("_"):
+    LM_checkpoint = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar"
+else:
+    LM_checkpoint = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/PP_15.6512/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
@@ -61,6 +76,15 @@ else:
     print("Training mode")
     train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_uLM_sentence"
 
+def load_images(data_path, split):
+    image_hdf5 = glob(data_path+f"/{split}*.hdf5")[0]
+    image_names = glob(data_path+f"/{split}*.json")[0]
+    h = h5py.File(image_hdf5, 'r')
+    images = h['images']
+    with open(image_names, "r") as f:
+        names = json.load(f)
+    return images, names
+
 def main():
     """
     Training and validation.
@@ -81,11 +105,17 @@ def main():
     # ----------------------------------------------------------------
 
     ### Not gated model ###
+    # if train_params["gated_decoder"]:
+    #     model = TransformerSentenceLM_FixedImg_gated(**model_params)
+    # else:
+    #     model = TransformerSentenceLM_FixedImg(**model_params)
+    
     if train_params["gated_decoder"]:
         model = TransformerSentenceLM_FixedImg_gated(**model_params)
+        # raise NotImplementedError
     else:
-        model = TransformerSentenceLM_FixedImg(**model_params)
-    
+        model = TransformerSentenceLM_FixedImg_Pool(**model_params)
+
     if train_params["load_uLM"]:
         model.load_Pretrained_LM(LM_checkpoint)
         if train_params["freeze_uLM"] and not train_params["gated_decoder"]:
@@ -143,7 +173,28 @@ def main():
     # Copy config to present model dir to keep record
     shutil.copyfile(config_path, f"../../saved_model/I2U/{dir_name}/{train_ID}/config_sentence.yml")
 
+    # ----------------------------------------------------------------
+    # tacotron_max_decoder_step = 500
+    # tacotron_checkpoint_path = "../../saved_model/U2S/outdir_VC_hubert_22050_102_warm/checkpoint_33000"
+    # hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
+    # asr_checkpoint_path = config["asr"]["model_path"]
+
+    # tacotron_model = load_tacotron2(
+    #     tacotron_checkpoint_path, 
+    #     max_decoder_step=tacotron_max_decoder_step,
+    #     sr=22050,
+    #     vocab_size=102
+    # )
+    # hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
+    # asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
+    # image_resolution = 256
+    # image_data_path = f"../../data/RL/{str(image_resolution)}"
+    # val_imgs, val_names = load_images(image_data_path, "VAL")
+
+    # ----------------------------------------------------------------
+
     for epoch in range(start_epoch, epochs):
+
         trainer.train(
             train_loader=train_loader,
             model=model,
@@ -178,24 +229,31 @@ def main():
         )
 
         # if epoch%10 == 0:
-        #     recent_bleu4_beam = trainer.validate_beam(
-        #         val_loader=val_loader_beam,
-        #         model=model,
-        #         start_unit=word_map["<start>"],
-        #         end_unit=word_map["<end>"],
-        #         epoch=epoch,
-        #         writer=writer,
-        #         decode_num=600,
-        #         device=device
-        #     )
-        #     print(f"Beam Search Validation: {recent_bleu4_beam}")
-
+        #     if epoch != 0:
+        #         recog_acc = trainer.validate_i2t(
+        #             i2u_model=model,
+        #             tacotron_model=tacotron_model,
+        #             hifigan_model=hifigan_model,
+        #             asr_model=asr_model,
+        #             asr_processor=asr_processor,
+        #             img_list=val_imgs,
+        #             img_names=val_names,
+        #             transform=transform,
+        #             device=device,
+        #             word_map=word_map,
+        #         )
+        #         writer.add_scalar("Valid/Recognition Accuracy", recog_acc, epoch)
         
 
         is_best_bleu4 = recent_bleu4 > best_bleu4
         best_bleu4 = max(recent_bleu4, best_bleu4)
         start = time.time()
 
+        """
+            save_epoch = True
+            save the model for every epoch.
+            This is for checking the faster convergence
+        """
         save_checkpoint(
             data_name=data_name,
             epoch=epoch,
@@ -206,7 +264,8 @@ def main():
             is_best=is_best_bleu4,
             dir_name=dir_name,
             train_ID=train_ID,
-            device=device
+            device=device,
+            save_epoch=True
         )
         # save_checkpoint("bleu-4", data_name, epoch, model, optimizer, recent_bleu4, 0, is_best_bleu4, train_ID, device)
         print(f"Saving model in {time.time() - start} seconds")

@@ -11,12 +11,12 @@ import math
 from tqdm import tqdm
 import torch
 import sys
-sys.path.append('../../egs/S2U/')
-from run_utils import load_audio_model_and_state
-from steps.unit_analysis import (get_feats_codes,DenseAlignment)
+# sys.path.append('../../egs/S2U/')
+# from run_utils import load_audio_model_and_state
+# from steps.unit_analysis import (get_feats_codes,DenseAlignment)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-from dataloaders.utils import compute_spectrogram
+# from dataloaders.utils import compute_spectrogram
 
 import yaml
 import json
@@ -29,10 +29,10 @@ def main():
     dir_name = config["i2u"]["dir_name"]
     # dir_name = "origin_5_captions_224"
     # dir_name = "Komatsu_4_captions_224"
-    if os.path.exists(f'../../data/I2U/processed/{dir_name}'):
-        assert not os.listdir(f'../../data/I2U/processed/{dir_name}'), "Exist dir, not empty. Choose a new name."
+    if os.path.exists(f'../../data/processed/{dir_name}'):
+        assert not os.listdir(f'../../data/processed/{dir_name}'), "Exist dir, not empty. Choose a new name."
     else:
-        os.mkdir(f'../../data/I2U/processed/{dir_name}')
+        os.mkdir(f'../../data/processed/{dir_name}')
 
     max_len = config["data"]["max_len"]
     # max_len = 100
@@ -74,27 +74,27 @@ def main():
             word_freq.update(caption)
 
     # 
-    print(f"saving at ../../data/I2U/processed/{dir_name}")
-    with open(f'../../data/I2U/processed/{dir_name}/train_image_paths.pickle', 'wb') as f:
+    print(f"saving at ../../data/processed/{dir_name}")
+    with open(f'../../data/processed/{dir_name}/train_image_paths.pickle', 'wb') as f:
         pickle.dump(train_image_paths, f)
-    with open(f'../../data/I2U/processed/{dir_name}/train_image_captions.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/train_image_captions.pickle', 'wb') as f:
         pickle.dump(train_image_captions, f)
-    with open(f'../../data/I2U/processed/{dir_name}/val_image_paths.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/val_image_paths.pickle', 'wb') as f:
         pickle.dump(val_image_paths, f)
-    with open(f'../../data/I2U/processed/{dir_name}/val_image_captions.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/val_image_captions.pickle', 'wb') as f:
         pickle.dump(val_image_captions, f)
-    with open(f'../../data/I2U/processed/{dir_name}/test_image_paths.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/test_image_paths.pickle', 'wb') as f:
         pickle.dump(test_image_paths, f)
-    with open(f'../../data/I2U/processed/{dir_name}/test_image_captions.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/test_image_captions.pickle', 'wb') as f:
         pickle.dump(test_image_captions, f)
-    with open(f'../../data/I2U/processed/{dir_name}/word_freq.pickle', 'wb') as f:
+    with open(f'../../data/processed/{dir_name}/word_freq.pickle', 'wb') as f:
         pickle.dump(word_freq, f)
 
 
 
     # import sys
     sys.path.append('../../egs/I2U/')
-    from utils_fruit import create_input_files
+    from utils_i2u import create_input_files
 
 
     create_input_files(dataset='coco',
@@ -102,7 +102,8 @@ def main():
                     image_folder='dataset/caption_data/',
                     captions_per_image=config["i2u"]["captions_per_image"],
                     min_word_freq=config["i2u"]["min_word_freq"],
-                    output_folder=f'../../data/I2U/processed/{dir_name}/',
+                    output_folder=f'../../data/processed/{dir_name}/',
+                    # dir_name= dir_name,
                     max_len = max_len)
 
 if __name__ == "__main__":

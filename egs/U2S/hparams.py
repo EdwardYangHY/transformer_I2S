@@ -19,12 +19,12 @@ def create_hparams():
         ################################
         # Experiment Parameters        #
         ################################
-        "epochs":5000,
-        "iters_per_checkpoint":1000,
-        "seed":1234,
+        "epochs":10000, # 5000， 500
+        "iters_per_checkpoint":1000, # 5000
+        "seed":1234, # 6789
         "dynamic_loss_scaling":True,
-        "fp16_run":False,
-        "distributed_run":False,
+        "fp16_run":False, # True
+        "distributed_run":False, # True
         "dist_backend":"nccl",
         "dist_url":"tcp://localhost:54321",
         "cudnn_enabled":True,
@@ -46,8 +46,8 @@ def create_hparams():
         # Audio Parameters             #
         ################################
         "max_wav_value":32768.0,
-        # sampling_rate=22050,
-        "sampling_rate":24000,
+        # "sampling_rate":22050,
+        "sampling_rate":24000, #22050
         "filter_length":1024,
         "hop_length":256,
         "win_length":1024,
@@ -59,7 +59,7 @@ def create_hparams():
         # Model Parameters             #
         ################################
         # n_symbols=len(symbols),
-        "n_symbols":1024,
+        "n_symbols":1024, # 102
         "symbols_embedding_dim":512,
 
         # Encoder parameters
@@ -71,7 +71,7 @@ def create_hparams():
         "n_frames_per_step":1,  # currently only 1 is supported
         "decoder_rnn_dim":1024,
         "prenet_dim":256,
-        "max_decoder_steps":1000,
+        "max_decoder_steps":1000, # 1000
         "gate_threshold":0.5,
         "p_attention_dropout":0.1,
         "p_decoder_dropout":0.1,

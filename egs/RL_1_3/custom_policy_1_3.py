@@ -55,6 +55,7 @@ class ResNet50_new(th.nn.Module):
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((7,7))
         self.fine_tune()
         self.resnet.eval()
 
@@ -66,6 +67,7 @@ class ResNet50_new(th.nn.Module):
         :return: encoded images
         """
         out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
+        out = self.adaptive_pool(out)
         out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
         batch, _, _, channels = out.size()
         out = out.view(batch, -1, channels)
@@ -108,7 +110,7 @@ class CustomFeaturesExtractorCNN(BaseFeaturesExtractor):
             rightmean_features = th.mean(rightimage_features, dim=1)
         
         if self.features_dim == 2048:
-            # Identical to original image features, no need to pool
+            # Identical to original image features, no need use fc
             features = th.cat((state, leftmean_features, rightmean_features), dim=1)
         else:
             features = th.cat((state, self.fc(leftmean_features), self.fc(rightmean_features)), dim=1)
@@ -121,6 +123,9 @@ class CustomFeaturesExtractorCNN_new(CustomFeaturesExtractorCNN):
 
         # self.cnn = ResNet50()
         self.cnn = ResNet50_new()
+        """
+            how about load adaptive pooling from other model?
+        """
 
         
 class CustomActor(BasePolicy):
@@ -218,12 +223,12 @@ class CustomMu(nn.Module):
             # alpha = F.softmax(alpha, dim=-1)
             image_features = alpha[:,0:1]*leftimage_features + alpha[:,1:2]*rightimage_features
         else:
-            image_features = th.stack([leftimage_features, rightimage_features], dim=1)  # (batch_size, 2, 768)
-            alpha_unsqueeze = alpha.unsqueeze(-1)  # (batch_size, 2, 1)
-            index = th.argmax(alpha_unsqueeze, dim=1, keepdim=True)  # (batch_size, 1, 1)
-            index = index.expand(image_features.size(0), 1, image_features.size(-1))  # (batch_size, 1, 768)
-            image_features = th.gather(image_features, dim=1, index=index)  # (batch_size, 1, 768)
-            image_features = image_features.squeeze(1)  # (batch_size, 768)
+            image_features = th.stack([leftimage_features, rightimage_features], dim=1)  
+            alpha_unsqueeze = alpha.unsqueeze(-1)  
+            index = th.argmax(alpha_unsqueeze, dim=1, keepdim=True) 
+            index = index.expand(image_features.size(0), 1, image_features.size(-1)) 
+            image_features = th.gather(image_features, dim=1, index=index)  
+            image_features = image_features.squeeze(1) 
         
         if self.use_embed:
             action = th.cat([image_features, embed, alpha], dim=1)

@@ -112,9 +112,14 @@ class DinoResEncoder_NoPool(nn.Module):
             for p in c.parameters():
                 p.requires_grad = fine_tune
     
-class DinoResEncoder_Raw(nn.Module):
-    def __init__(self):
-        super(DinoResEncoder_Raw, self).__init__()
+class DinoResEncoder_Pool(nn.Module):
+    def __init__(self, encoded_image_size=7):
+        """
+            The key is, the image encoder, if not fine-tuning, will generate NO trainable 
+            parameters.
+        """
+
+        super(DinoResEncoder_Pool, self).__init__()
         resnet = resnet50(weights=None)
         resnet.fc = torch.nn.Identity()
         resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
@@ -122,6 +127,13 @@ class DinoResEncoder_Raw(nn.Module):
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(resnet.children())[:-2]
         self.resnet = nn.Sequential(*modules)
+
+        """
+            Becasue of the following RL, we have to fix the image feature size.
+            If input features is 7x7 (224 resolution), it will not be changed;
+            If input features is 8x8 (256 resolution), it will be pooled
+        """
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
         self.fine_tune()
 
     def forward(self, images):
@@ -132,12 +144,13 @@ class DinoResEncoder_Raw(nn.Module):
         :return: encoded images
         """
         out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
-        # out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
-        # batch_size = out.size(0)
-        # now_embedding_dim = out.size(-1)
-        # out = out.view(batch_size, -1 , now_embedding_dim)
-        # gx = out.mean(1)
-        return out
+        out = self.adaptive_pool(out)  # (batch_size, 2048, 7, 7)
+        out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
+        batch_size = out.size(0)
+        now_embedding_dim = out.size(-1)
+        out = out.view(batch_size, -1 , now_embedding_dim)
+        gx = out.mean(1)
+        return out, gx
 
     def fine_tune(self, fine_tune=False):
         """
@@ -151,6 +164,46 @@ class DinoResEncoder_Raw(nn.Module):
         for c in list(self.resnet.children())[5:]:
             for p in c.parameters():
                 p.requires_grad = fine_tune
+
+# class DinoResEncoder_Raw(nn.Module):
+#     def __init__(self):
+#         super(DinoResEncoder_Raw, self).__init__()
+#         resnet = resnet50(weights=None)
+#         resnet.fc = torch.nn.Identity()
+#         resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+
+#         # Remove linear and pool layers (since we're not doing classification)
+#         modules = list(resnet.children())[:-2]
+#         self.resnet = nn.Sequential(*modules)
+#         self.fine_tune()
+
+#     def forward(self, images):
+#         """
+#         Forward propagation.
+
+#         :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
+#         :return: encoded images
+#         """
+#         out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
+#         # out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
+#         # batch_size = out.size(0)
+#         # now_embedding_dim = out.size(-1)
+#         # out = out.view(batch_size, -1 , now_embedding_dim)
+#         # gx = out.mean(1)
+#         return out
+
+#     def fine_tune(self, fine_tune=False):
+#         """
+#         Allow or prevent the computation of gradients for convolutional blocks 2 through 4 of the encoder.
+
+#         :param fine_tune: Allow?
+#         """
+#         for p in self.resnet.parameters():
+#             p.requires_grad = False
+#         # If fine-tuning, only fine-tune convolutional blocks 2 through 4
+#         for c in list(self.resnet.children())[5:]:
+#             for p in c.parameters():
+#                 p.requires_grad = fine_tune
 
 class ViTEncoder(nn.Module):
     '''

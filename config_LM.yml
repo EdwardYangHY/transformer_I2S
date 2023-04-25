@@ -28,17 +28,17 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 128 # 128
+    batch_size: 48 # 128
     num_workers: 10
     grad_clip: 5.
     lr: 5.0e-4 # set to 4.0e-4 if scheduler = False
     optimizer: "Adam" # [Adam, AdamW]
-    epoch: 100
+    epoch: 1000
     warmup_epoch: 10 # only make sense when use_scheduler = True
     use_scheduler: True
     print_freq: 100
     kl_weight: 0.01
-    checkpoint_path: #/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/23-02-15_13:53:27_sentence/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar
+    checkpoint_path: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar
   
   model_params:
     d_model: 1024 # 2048

@@ -3,6 +3,10 @@ from utils_i2u import *       #changed
 from torch.nn.utils.rnn import pack_padded_sequence
 from nltk.translate.bleu_score import corpus_bleu
 
+# from utils_i2u import *
+# from utils_synthesize import load_u2s, seq2words, u2s, u2s_hubert, s2t
+# from judge_asr import judge_ans
+
 def train(train_loader, model, criterion, optimizer, epoch, writer, grad_clip, device,
           print_freq = 100, kl_weight = 0):
     """
@@ -44,6 +48,7 @@ def train(train_loader, model, criterion, optimizer, epoch, writer, grad_clip, d
         # padding_mask = padding_mask.clone().detach()
 
         # Forward prop.
+        # with torch.autograd.set_detect_anomaly(True):
         if kl_weight is None:
             logits, encoded_seq, decode_lengths, sort_ind = model(
                 imgs,
@@ -279,6 +284,48 @@ def validate(val_loader, model, criterion, epoch, writer, device, start_unit, en
         writer.add_scalar("Valid/Top5Accuracy", top5accs.avg, epoch)
         writer.add_scalar("Valid/Losses", losses.avg, epoch)
     return bleu4, top5accs.avg, losses.avg
+
+# def validate_i2t(i2u_model, tacotron_model, hifigan_model, asr_model, asr_processor, 
+#                  img_list, img_names, transform, device, word_map, tts_dataset = None):
+#     """
+#         validate the model with whole image -> units -> mel -> speech -> text
+#     """
+
+#     rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+#     special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+
+#     all_num = len(img_list)
+#     right_num = 0
+#     for i in range(all_num):
+#         img = transform(torch.FloatTensor(img_list[i]/255.)).to(device)
+#         img = img.unsqueeze(0)
+#         name = img_names[i]
+#         seqs = i2u_model.decode(image=img, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
+#         if len(seqs) == 0:
+#             continue
+#         words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
+#         if tts_dataset is not None:
+#             audio = u2s_hubert(
+#                 words=words,
+#                 tacotron2_model=tacotron_model,
+#                 tts_dataset=tts_dataset,
+#                 hifigan_model=hifigan_model,
+#                 device=device
+#                 )
+#         else:
+#             audio = u2s(
+#                 words=words,
+#                 tacotron2_model=tacotron_model,
+#                 hifigan_model=hifigan_model,
+#                 device=device
+#                 )
+#         trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
+#         # trans = u2s2t(seq=seqs, tacotron2_model=tacotron_model, generator=hifigan_model, processor=asr_processor, asr_model=asr_model)
+        
+#         right_ans, right_name =  judge_ans(trans, name)
+#         if right_ans:
+#             right_num += 1
+#     return right_num/all_num
 
 
 def train_LM(train_loader, model, criterion, optimizer, epoch, writer, grad_clip, device,

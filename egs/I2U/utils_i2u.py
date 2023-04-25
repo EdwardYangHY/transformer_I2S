@@ -14,41 +14,72 @@ import yaml
 import warnings
 import math
 from torch.optim.lr_scheduler import LambdaLR
+import sys
 
-# config_path='../../config_sentence.yml'
-# with open(config_path, 'r') as yml:
-#     config = yaml.safe_load(yml)
+# sys.path.append("../..")
+# import hifigan
+# from hifigan.env import AttrDict
+# from hifigan.models import Generator
 
-# dir_name = config["i2u"]["dir_name"]
+# sys.path.append("../U2S")
+# # import U2S
+# from hparams import create_hparams
+# from train import load_model
+# from text import text_to_sequence
 
-resolution = 224
+# sys.path.append('../')
+# from gslm.unit2speech.tts_data import (
+#     TacotronInputDataset,
+# )
+# from gslm.unit2speech.utils import (
+#     load_quantized_audio_from_file,
+#     load_tacotron,
+#     load_waveglow,
+#     synthesize_audio,
+# )
+# from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+config_path='../../config.yml'
+with open(config_path, 'r') as yml:
+    config = yaml.safe_load(yml)
+
+dir_name = config["i2u"]["dir_name"]
+
+resolution = config["data"]["image_resolution"]
 
 def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, 
-                       output_folder, dir_name, max_len=100):
-    with open(f'../../data/I2U/processed/{dir_name}/train_image_paths.pickle', 'rb') as f:
+                       output_folder, max_len=100):
+    with open(output_folder + 'train_image_paths.pickle', 'rb') as f:
         train_image_paths = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/train_image_captions.pickle', 'rb') as f:
+    with open(output_folder + 'train_image_captions.pickle', 'rb') as f:
         train_image_captions = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/val_image_paths.pickle', 'rb') as f:
+    with open(output_folder + 'val_image_paths.pickle', 'rb') as f:
         val_image_paths = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/val_image_captions.pickle', 'rb') as f:
+    with open(output_folder + 'val_image_captions.pickle', 'rb') as f:
         val_image_captions = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/test_image_paths.pickle', 'rb') as f:
+    with open(output_folder + 'test_image_paths.pickle', 'rb') as f:
         test_image_paths = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/test_image_captions.pickle', 'rb') as f:
+    with open(output_folder + 'test_image_captions.pickle', 'rb') as f:
         test_image_captions = pickle.load(f)
-    with open(f'../../data/I2U/processed/{dir_name}/word_freq.pickle', 'rb') as f:
+    with open(output_folder + 'word_freq.pickle', 'rb') as f:
         word_freq = pickle.load(f)
 
 
 
     # Create word map
-    words = [w for w in word_freq.keys() if word_freq[w] > min_word_freq]
-    word_map = {k: v + 1 for v, k in enumerate(words)}
-    word_map['<unk>'] = len(word_map) + 1
-    word_map['<start>'] = len(word_map) + 1
-    word_map['<end>'] = len(word_map) + 1
-    word_map['<pad>'] = 0
+    # words = [w for w in word_freq.keys() if word_freq[w] > min_word_freq]
+    # word_map = {k: v + 1 for v, k in enumerate(words)}
+    # word_map['<unk>'] = len(word_map) + 1
+    # word_map['<start>'] = len(word_map) + 1
+    # word_map['<end>'] = len(word_map) + 1
+    # word_map['<pad>'] = 0
+
+    word_map_path = "../../data/processed/WORDMAP_HUBERT.json"
+    print(f"Using word map from: {word_map_path}")
+    print(f"Resizing Image Resolution: {resolution}")
+    print(f"Max token len: {max_len}")
+    with open(word_map_path, "r") as f:
+        word_map = json.load(f)
 
     # Create a base/root name for all output files
     base_filename = dataset + '_' + str(captions_per_image) + '_cap_per_img_' + str(min_word_freq) + '_min_word_freq'
@@ -70,7 +101,7 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
             # Create dataset inside HDF5 file to store images
             images = h.create_dataset('images', (len(impaths), 3, resolution, resolution), dtype='uint8')
 
-            print("\nReading %s images and captions, storing to file...\n" % split)
+            print("\nReading %s images and captions, storing to file...\n" % os.path.join(output_folder, split + '_IMAGES_' + base_filename + '.hdf5'))
 
             enc_captions = []
             caplens = []
@@ -82,6 +113,14 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
                 # Sample captions
                 # imcaps[i] means captions of image i, which can be a lot
                 # if imcaps[i] doesn't have enough caps
+                
+                # make sure that caps in imcaps[i] <= max_len
+
+                hubert_caps_short = [x for x in imcaps[i] if len(x) <= max_len]
+                assert len(hubert_caps_short) != 0, f"image {path} has no hubert captions shorter than {max_len}"
+
+                imcaps[i] = hubert_caps_short
+
                 if len(imcaps[i]) < captions_per_image:
                     captions = imcaps[i] + [choice(imcaps[i]) for _ in range(captions_per_image - len(imcaps[i]))]
                 # if imcaps[i] has enough caps
@@ -188,45 +227,7 @@ def clip_gradient(optimizer, grad_clip):
             if param.grad is not None:
                 param.grad.data.clamp_(-grad_clip, grad_clip)
 
-# def save_checkpoint(metric, data_name, epoch, model, optimizer, bleu4, accuracy_score, is_best, train_ID ,device=None):
-#     '''
-#         使用的scheduel， 是否需要存储其变化的lr？
-#     '''
-#     state = {
-#         'epoch': epoch,
-#         'model_state_dict': model.state_dict(),
-#         'optimizer_state_dict': optimizer.state_dict(),
-#         'bleu-4': bleu4,
-#         'accuracy': accuracy_score,
-#     }
-#     filename = 'checkpoint_' + data_name + '.pth.tar'
-#     ### If use GPU, save differently
-#     if device != None:
-#         if device.type=='cuda':
-#             filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
-#     ###
-#     torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
-#     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
-#     if is_best:
-#         torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric}_BEST_' + filename)
-
-# def load_checkpoint(checkpoint_path, model, optimizer, device):
-#     checkpoint = checkpoint_path
-#     print(f"Loading checkpoint from {checkpoint}")
-#     # checkpoint = torch.load(checkpoint)
-#     checkpoint = torch.load(checkpoint, map_location=device)
-#     start_epoch = checkpoint['epoch'] + 1
-#     model.load_state_dict(checkpoint['model_state_dict'])
-#     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-#     for state in optimizer.state.values():
-#         for k, v in state.items():
-#             if torch.is_tensor(v):
-#                 state[k] = v.to(device)
-#     best_bleu4 = checkpoint["bleu-4"]
-#     best_accuracy = checkpoint["accuracy"]
-#     return model, optimizer, start_epoch, best_bleu4, best_accuracy
-
-def save_checkpoint(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None):
+def save_checkpoint(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None, save_epoch=False):
     '''
         使用的scheduel， 是否需要存储其变化的lr？
     '''
@@ -241,14 +242,41 @@ def save_checkpoint(data_name, epoch, model, optimizer, metric_name, metric_valu
     ### If use GPU, save differently
     if device != None:
         if device.type=='cuda':
+            if not save_epoch:
+                filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
+            else:
+                if epoch == 0 or (epoch+1)%5 == 0:
+                    filename = str(epoch)+'_checkpoint_' + data_name + '_gpu.pth.tar'
+                else:
+                    filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
+        else:
+            raise NotImplementedError
+    
+    if device.type=="cuda":
+        """
+            if save_epoch, then save pth for each epoch;
+            else, override all previous models when having a new one
+        """ 
+        if save_epoch:
+            if (epoch+1) % 5 == 0:
+                filename = str(epoch)+'_checkpoint_' + data_name + '_gpu.pth.tar'
+        else:
             filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
-    ###
+    else:
+        raise NotImplementedError
+    
     torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
-    # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
+    
     if is_best:
-        torch.save(state, f'../../saved_model/I2U/{dir_name}/{train_ID}/{metric_name}_BEST_' + filename)
+        """
+            if is best, define a unified name for BEST model
+        """ 
+        filename = f"{metric_name}_BEST_checkpoint_{data_name}_gpu.pth.tar"
+        torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
+    ###
+    # torch.save(state, f"../../saved_model/I2U/{dir_name}/{train_ID}/" + filename)
 
-def save_checkpoint_LM(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None):
+def save_checkpoint_LM(data_name, epoch, model, optimizer, metric_name, metric_value, is_best, dir_name, train_ID ,device=None, save_epoch=False):
     '''
         使用的scheduel， 是否需要存储其变化的lr？
     '''
@@ -285,41 +313,6 @@ def load_checkpoint(checkpoint_path, model, optimizer, device):
     metric_name = checkpoint["metric_name"]
     metric_value = checkpoint["metric_value"]
     return model, optimizer, start_epoch, metric_name, metric_value
-
-# def save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder, encoder_optimizer, decoder_optimizer,
-#                     bleu4, is_best, device=None):
-#     #changed
-#     """
-#     Saves model checkpoint.
-
-#     :param data_name: base name of processed dataset
-#     :param epoch: epoch number
-#     :param epochs_since_improvement: number of epochs since last improvement in BLEU-4 score
-#     :param encoder: encoder model
-#     :param decoder: decoder model
-#     :param encoder_optimizer: optimizer to update encoder's weights, if fine-tuning
-#     :param decoder_optimizer: optimizer to update decoder's weights
-#     :param bleu4: validation BLEU-4 score for this epoch
-#     :param is_best: is this checkpoint the best so far?
-#     """
-#     state = {'epoch': epoch,
-#              'epochs_since_improvement': epochs_since_improvement,
-#              'bleu-4': bleu4,
-#              'encoder': encoder,
-#              'decoder': decoder,
-#              'encoder_optimizer': encoder_optimizer,
-#              'decoder_optimizer': decoder_optimizer}
-    
-#     filename = 'checkpoint_' + data_name + '.pth.tar'
-#     ### If use GPU, save differently
-#     if device != None:
-#         if device.type=='cuda':
-#             filename = 'checkpoint_' + data_name + '_gpu.pth.tar'
-#     ###
-#     torch.save(state, f"../../model/I2U/{dir_name}/" + filename)
-#     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
-#     if is_best:
-#         torch.save(state, f'../../model/I2U/{dir_name}/BEST_' + filename)
 
 
 class AverageMeter(object):
@@ -389,15 +382,6 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
                       "The distribution of values may be incorrect.",
                       stacklevel=2)
 
-# def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
-#     def lr_lambda(current_epoch: int):
-#         """
-#         Eq. (3) in [Transformer paper](https://arxiv.org/abs/1706.03762)
-#         """
-#         return d_model**(-0.5) * min((current_epoch+1)**(-0.5), (current_epoch+1)*num_warmup_epochs**(-1.5))
-
-#     return LambdaLR(optimizer, lr_lambda, verbose=True)
-
 def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0, d_model: int = 2048):
     
     def lr_lambda(current_epoch: int):
@@ -408,3 +392,97 @@ def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, last_epoch: int = 0,
 
     return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch, verbose=True)
 
+# def load_tacotron2(model_path, max_decoder_step):
+#     hparams = create_hparams()
+#     hparams.sampling_rate = 22050
+#     hparams.max_decoder_steps = max_decoder_step
+#     checkpoint_path = model_path
+#     tacotron2_model = load_model(hparams)
+#     tacotron2_model.load_state_dict(torch.load(checkpoint_path)['state_dict'])
+#     tacotron2_model.cuda().eval()
+#     return tacotron2_model
+
+# def load_tacotron2_hubert(model_path, code_dict_path, max_decoder_steps):
+#     tacotron_model, sample_rate, hparams = load_tacotron(
+#         tacotron_model_path=model_path,
+#         max_decoder_steps=max_decoder_steps,
+#     )
+
+#     if not os.path.exists(hparams.code_dict):
+#         hparams.code_dict = code_dict_path
+#     tts_dataset = TacotronInputDataset(hparams)
+#     return tacotron_model, tts_dataset
+
+# def load_hifigan(checkpoint_path, device):
+#     checkpoint_file = checkpoint_path
+#     config_file = os.path.join(os.path.split(checkpoint_file)[0], 'config.json')
+#     with open(config_file) as f:
+#         data = f.read()
+#     # global h
+#     json_config = json.loads(data)
+#     h = AttrDict(json_config)
+#     generator = Generator(h).to(device)
+#     assert os.path.isfile(checkpoint_file)
+#     checkpoint_dict = torch.load(checkpoint_file, map_location=device)
+#     generator.load_state_dict(checkpoint_dict['generator'])
+#     generator.eval()
+#     generator.remove_weight_norm()
+#     return generator
+
+# def load_asr(model_path, device):
+#     processor = Wav2Vec2Processor.from_pretrained(config["asr"]["model_path"])
+#     asr_model = Wav2Vec2ForCTC.from_pretrained(config["asr"]["model_path"]).to(device)
+#     asr_model.eval()
+#     return asr_model, processor
+
+# def seq2words(seq, rev_word_map, special_words):
+#     return [rev_word_map[ind] for ind in seq if rev_word_map[ind] not in special_words]
+
+# def u2s(words, tacotron2_model, hifigan_model, device):
+#     # words = [rev_word_map[ind] for ind in seq if rev_word_map[ind] not in special_words]
+#     # print(words)
+#     sequence = np.array(text_to_sequence(' '.join(words), ['english_cleaners']))[None, :]
+#     sequence = torch.autograd.Variable(torch.from_numpy(sequence)).cuda().long()
+#     _, mel_outputs_postnet, _, _ = tacotron2_model.inference(sequence)
+#     with torch.no_grad():
+#         x = mel_outputs_postnet.squeeze().to(device)
+#         y_g_hat = hifigan_model(mel_outputs_postnet)
+#         audio = y_g_hat.squeeze()
+#         # audio = audio * 32768.0
+#         # audio = audio.cpu().numpy().astype('int16')
+#         audio = audio.cpu().numpy().astype(np.float64)
+#     return audio
+
+# def synthesize_mel(model, inp, lab=None, strength=0.0):
+#     assert inp.size(0) == 1
+#     inp = inp.cuda()
+#     if lab is not None:
+#         lab = torch.LongTensor(1).cuda().fill_(lab)
+
+#     with torch.no_grad():
+#         _, mel, _, ali, has_eos = model.inference(inp, lab, ret_has_eos=True)
+#     return mel, has_eos
+
+# def u2s_hubert(words, tacotron2_model, tts_dataset, hifigan_model, device):
+#     quantized_units_str = " ".join(words)
+#     tts_input = tts_dataset.get_tensor(quantized_units_str)
+#     mel, has_eos = synthesize_mel(
+#         tacotron2_model,
+#         tts_input.unsqueeze(0),
+#     )
+#     with torch.no_grad():
+#         x = mel.squeeze().float()
+#         # x = torch.FloatTensor(x).to(device)
+#         y_g_hat = hifigan_model(x)
+#         audio = y_g_hat.squeeze()
+#         audio = audio * 32768.0
+#         # audio = audio.cpu().numpy().astype('int16')
+#         audio = audio.cpu().numpy().astype(np.float64)
+#     return audio
+
+# def s2t(audio, asr_processor, asr_model, device):
+#     input_values = asr_processor(audio, sampling_rate=16000, return_tensors="pt").input_values.float()
+#     logits = asr_model(input_values.to(device)).logits
+#     predicted_ids = torch.argmax(logits, dim=-1)
+#     transcription = asr_processor.decode(predicted_ids[0])
+#     return transcription

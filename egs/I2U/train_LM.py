@@ -111,8 +111,11 @@ def main():
     # if use_scheduler:
     #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
     if checkpoint is not None:
-        model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity = load_checkpoint(checkpoint, model, optimizer, device)
-    
+        # model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity = load_checkpoint(checkpoint, model, optimizer, device)
+        cp_state_dict = torch.load(checkpoint)
+        cp_state_dict = cp_state_dict["model_state_dict"]
+        model.load_state_dict(cp_state_dict, strict=True)
+
     if use_scheduler:
         scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], last_epoch=start_epoch-1, d_model=model_params["d_model"])
         # scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], d_model=model_params["d_model"])

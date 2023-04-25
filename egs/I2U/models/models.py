@@ -169,7 +169,7 @@ class TransformerLM(nn.Module):
         padding_mask:
             True is pad
             False is other
-        主要是key padding mask是用来遮挡这个这个这个 padding 的部分
+        主要是key padding mask是用来遮挡这个 padding 的部分
         需要：src_key_padding_mask 和 tgt_key_padding_mask来补足没有encoder的问题
 
         A LM only.
