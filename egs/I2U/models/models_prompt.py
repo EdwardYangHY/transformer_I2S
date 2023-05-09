@@ -221,14 +221,12 @@ class TransformerPrefixLM(TransformerConditionedLM):
         if self.AR:
             decoder_output = self.LM_decoder(
                 src = decoder_input, 
-                # memory = imgs, 
                 mask = decoder_input_attn_mask, 
                 src_key_padding_mask = decoder_input_padding_mask
                 )
         else:
             decoder_output = self.LM_decoder(
                 src = decoder_input, 
-                # memory = imgs,
                 src_key_padding_mask = decoder_input_padding_mask
                 )
 
@@ -302,6 +300,7 @@ class TransformerPrefixLM(TransformerConditionedLM):
         # Start decoding
         step = 1
         # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+        self.LM_decoder.set_prefix(gx)
 
         while True:
             # first version
@@ -447,11 +446,22 @@ class prefix_TransformerEncoderLayer(nn.TransformerEncoderLayer):
         """ 
         Customized Self-attention Block for prefix prompt tuning.
         Ref: Prefix-tuning https://arxiv.org/abs/2101.00190
+
+        originally, (..., need_weights=Flase)[0] outputs no atten.
+        To
         """
-        x = self.self_attn(query=x, key=k_prompt, value=v_prompt,
+        # x_1, atten_1 = self.self_attn(query=x[:,-1:,:], key=k_prompt[:,-1:,:], value=v_prompt[:,-1:,:],
+        #                    attn_mask=attn_mask[-1:, -1:],
+        #                    key_padding_mask=key_padding_mask,
+        #                    need_weights=True)# [0]
+
+        x, atten = self.self_attn(query=x, key=k_prompt, value=v_prompt,
                            attn_mask=attn_mask,
                            key_padding_mask=key_padding_mask,
-                           need_weights=False)[0]
+                           need_weights=True)# [0]
+        
+
+        
         return self.dropout1(x)
 
 class prefix_TransformerEncoder(nn.TransformerEncoder):
@@ -482,7 +492,33 @@ class prefix_TransformerEncoder(nn.TransformerEncoder):
         self.prompt_activation = nn.ReLU()
         self.prompt_dropout = nn.Dropout(p=0.05)
         self.prefix_length = prefix_length
+        self.prefix_cache = None
+
+        first_layer = self.layers[0]
+        # assert isinstance(first_layer, prefix_TransformerEncoderLayer), f"{first_layer} is not a prefix_TransformerEncoderLayer"
     
+    def set_prefix(self,src: Tensor):
+        self.prefix_cache = {}
+
+        input_prefix = src.clone()
+        input_prefix = input_prefix[:,:self.prefix_length,:]
+        self.prefix_cache["prefix"] = input_prefix
+        input_prefix_prompt = self.input_prompt_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+        input_prefix_prompt = self.prompt_dropout(self.prompt_activation(input_prefix_prompt))
+        self.prefix_cache["input_prompt"] = input_prefix_prompt
+
+        self.prefix_cache["key_prompt"] = []
+        self.prefix_cache["value_prompt"] = []
+
+        for key_embedder, value_embedder in zip(self.key_embedders, self.value_embedders):
+            key_prefix_prompt = key_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+            key_prefix_prompt = self.prompt_dropout(self.prompt_activation(key_prefix_prompt))
+            self.prefix_cache["key_prompt"].append(key_prefix_prompt)
+
+            value_prefix_prompt = value_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+            value_prefix_prompt = self.prompt_dropout(self.prompt_activation(value_prefix_prompt))
+            self.prefix_cache["value_prompt"].append(value_prefix_prompt)
+
     def forward(
             self, 
             src: Tensor, 
@@ -501,44 +537,89 @@ class prefix_TransformerEncoder(nn.TransformerEncoder):
         """
 
         output = src
-        input_prefix = src.clone()
-        input_prefix = input_prefix[:,:self.prefix_length,:]
-        # input_prompt = output.clone()
-        # key_prompt = output.clone()
-        # value_prompt = output.clone()
-        first_layer = self.layers[0]
-        assert isinstance(first_layer, prefix_TransformerEncoderLayer), f"{first_layer} is not a prefix_TransformerEncoderLayer"
+        batch_size = output.size(0)
+        if self.prefix_cache is not None:
+            input_prefix = self.prefix_cache["prefix"][:batch_size,:,:]
+        else:
+            input_prefix = src.clone()
+            input_prefix = input_prefix[:,:self.prefix_length,:]
+        # first_layer = self.layers[0]
+        # assert isinstance(first_layer, prefix_TransformerEncoderLayer), f"{first_layer} is not a prefix_TransformerEncoderLayer"
         
         """
             Before go into transformerlayers, we prompt the input prefix:
         """
-        input_prefix_prompt = self.input_prompt_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
-        input_prefix_prompt = self.prompt_dropout(self.prompt_activation(input_prefix_prompt))
-        output[:,:self.prefix_length,:] = input_prefix_prompt
+        if self.prefix_cache is not None:
+            input_prefix_prompt = self.prefix_cache["input_prompt"][:batch_size,:,:]
+        else:
+            input_prefix_prompt = self.input_prompt_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+            input_prefix_prompt = self.prompt_dropout(self.prompt_activation(input_prefix_prompt))
 
-        for mod, key_embedder, value_embedder in zip(self.layers, self.key_embedders, self.value_embedders):
-            """
-                Here we assert BatchFirst is True
-                Embedder is a conv1d layer, we should permute [B, T, dim] -> [B, dim, T]
-            """ 
+        output[:,:self.prefix_length,:] = input_prefix_prompt
+        
+        
+        for idx, mod in enumerate(self.layers):
             key_prompt = output.clone()
-            key_prefix_prompt = key_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
-            key_prefix_prompt = self.prompt_dropout(self.prompt_activation(key_prefix_prompt))
+            if self.prefix_cache is not None:
+                key_prefix_prompt = self.prefix_cache["key_prompt"][idx][:batch_size,:,:]
+            else:
+                key_prefix_prompt = self.key_embedders[idx](input_prefix.permute(0,2,1)).permute(0,2,1)
+                key_prefix_prompt = self.prompt_dropout(self.prompt_activation(key_prefix_prompt))
             key_prompt[:,:self.prefix_length,:] = key_prefix_prompt
             
             value_prompt = output.clone()
-            value_prefix_prompt = value_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
-            value_prefix_prompt = self.prompt_dropout(self.prompt_activation(value_prefix_prompt))
+            if self.prefix_cache is not None:
+                value_prefix_prompt = self.prefix_cache["value_prompt"][idx][:batch_size,:,:]
+            else:
+                value_prefix_prompt = self.value_embedders[idx](input_prefix.permute(0,2,1)).permute(0,2,1)
+                value_prefix_prompt = self.prompt_dropout(self.prompt_activation(value_prefix_prompt))
             value_prompt[:,:self.prefix_length,:] = value_prefix_prompt
+
+            if not self.training:
+                output = mod(
+                    output, 
+                    key_prompt=key_prompt,
+                    value_prompt=value_prompt,
+                    src_mask=mask, 
+                    src_key_padding_mask=src_key_padding_mask
+                    )
+            else:
+                output = mod(
+                    output, 
+                    key_prompt=key_prompt,
+                    value_prompt=value_prompt,
+                    src_mask=mask, 
+                    src_key_padding_mask=src_key_padding_mask
+                    )
+            
+        # for mod, key_embedder, value_embedder in zip(self.layers, self.key_embedders, self.value_embedders):
+        #     """
+        #         Here we assert BatchFirst is True
+        #         Embedder is a conv1d layer, we should permute [B, T, dim] -> [B, dim, T]
+        #     """ 
+
+        #     """
+        #         计算大量冗余：
+        #         Prefix是不会变的 所以不需要每次都计算
+        #     """
+        #     key_prompt = output.clone()
+        #     key_prefix_prompt = key_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+        #     key_prefix_prompt = self.prompt_dropout(self.prompt_activation(key_prefix_prompt))
+        #     key_prompt[:,:self.prefix_length,:] = key_prefix_prompt
+            
+        #     value_prompt = output.clone()
+        #     value_prefix_prompt = value_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
+        #     value_prefix_prompt = self.prompt_dropout(self.prompt_activation(value_prefix_prompt))
+        #     value_prompt[:,:self.prefix_length,:] = value_prefix_prompt
             
 
-            output = mod(
-                output, 
-                key_prompt=key_prompt,
-                value_prompt=value_prompt,
-                src_mask=mask, 
-                src_key_padding_mask=src_key_padding_mask
-                )
+        #     output = mod(
+        #         output, 
+        #         key_prompt=key_prompt,
+        #         value_prompt=value_prompt,
+        #         src_mask=mask, 
+        #         src_key_padding_mask=src_key_padding_mask
+        #         )
 
         if self.norm is not None:
             output = self.norm(output)
