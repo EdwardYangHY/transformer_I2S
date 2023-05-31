@@ -66,7 +66,49 @@ class IncrementalState(object):
 
             It is often operated outside MHA. Probably this function in this class will not be used.
         """
-        pass
+        if incremental_state is None:
+            return
+        
+        for layer_id in incremental_state.keys():
+            # this key is layer_id
+            for kv in incremental_state[layer_id].keys():
+                incremental_state[layer_id][kv] = incremental_state[layer_id][kv][new_order]
+        return
+
+    def set_layer_id(self):
+        self._layer_id = str(uuid.uuid4())
+
+    def _sa_block_incremental(
+            self,
+            q: Tensor,
+            k: Tensor,
+            v: Tensor,
+            incremental_state: None,
+            attn_mask: Optional[Tensor], 
+            key_padding_mask: Optional[Tensor]
+        ) -> Tensor:
+        """ 
+        Customized Self-attention Block for prefix prompt tuning.
+        Ref: Prefix-tuning https://arxiv.org/abs/2101.00190
+
+        originally, (..., need_weights=Flase)[0] outputs no atten.
+        To
+        """
+        # _layer_id would not be changed
+        if incremental_state != None:
+            assert self._layer_id is not None, "Incremental decoding can't work without layer id"
+            self.init_incremental_state(incremental_state, self._layer_id)
+            layer_incremental_state = self.get_incremental_state(incremental_state, self._layer_id)
+        else:
+            layer_incremental_state = None
+        
+        x, atten = self.self_attn(query=q, key=k, value=v,
+                            incremental_state=layer_incremental_state,
+                           attn_mask=attn_mask,
+                           key_padding_mask=key_padding_mask,
+                           need_weights=True)# [0]
+        
+        return self.dropout1(x)
 
 # @with_incremental_state
 # as decorator, so the decorated class would also obtain those functions.

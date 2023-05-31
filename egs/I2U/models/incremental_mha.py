@@ -357,7 +357,8 @@ class MultiheadAttention_incremental(MultiheadAttention):
                     _prev_key = saved_state["prev_key"]
                     assert _prev_key is not None
                     kv_bsz = _prev_key.size(0)
-                    prev_key = _prev_key.view(kv_bsz * self.num_heads, -1, head_dim)
+                    # Use contiguous() for reshaping
+                    prev_key = _prev_key.contiguous().view(kv_bsz * self.num_heads, -1, head_dim)
                     assert k is not None
                     k = torch.cat([prev_key, k], dim=1)
                     src_len = k.size(1)
@@ -365,7 +366,7 @@ class MultiheadAttention_incremental(MultiheadAttention):
                     _prev_value = saved_state["prev_value"]
                     assert _prev_value is not None
                     assert kv_bsz == _prev_value.size(0)
-                    prev_value = _prev_value.view(
+                    prev_value = _prev_value.contiguous().view(
                         kv_bsz * self.num_heads, -1, head_dim
                     )
                     assert v is not None

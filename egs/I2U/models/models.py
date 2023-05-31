@@ -94,20 +94,29 @@ class PositionalEncoding(nn.Module):
         self.batch_first = batch_first
         self.register_buffer('pe', pe)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, pos: int = None) -> torch.Tensor:
         """
         Args:
             x: Tensor, shape [seq_len, batch_size, embedding_dim]
         if batch_first == True:
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
-        if self.batch_first:
-            seq_len = x.size(1)
-            pe = self.pe[:seq_len].permute(1, 0, 2)
-            x = x + pe
+        if pos is not None:
+            pos_embed = self.pe[pos].unsqueeze(dim=0)
+            if self.batch_first:
+                assert x.size(1) == 1, "Pos is available only for one-token input"
+                x = x + pos_embed.permute(1, 0, 2) # permute seems not needed if len == 1
+            else:
+                assert x.size(0) == 1, "Pos is available only for one-token input"
+                x = x + pos_embed
         else:
-            seq_len = x.size(0)
-            x = x + self.pe[:seq_len]
+            if self.batch_first:
+                seq_len = x.size(1)
+                pe = self.pe[:seq_len].permute(1, 0, 2)
+                x = x + pe
+            else:
+                seq_len = x.size(0)
+                x = x + self.pe[:seq_len]
         return self.dropout(x)
 
 class TransformerLM(nn.Module):
