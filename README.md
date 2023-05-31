@@ -4,8 +4,9 @@ This is an repo to implement an image-to-speech synthesizing model by transforme
 
 This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper "[Text-Free Image-To-Speech Synthesis Using Learned Segmental Units](https://wnhsu.github.io/image-to-speech-demo/paper.pdf)", with much updates to improve the system.
 
+---
 
-### Table of Contents
+## Table of Contents
 
 * [Model Overview](#model-overview)
 * [Core Components](#core-components)
@@ -14,13 +15,15 @@ This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper
 * [Usage](#usage)
 * [Licence](#licence)
 
+---
 
-### Model Overview
+## Model Overview
 
 ![avatar](./doc/model_structure.png)
 
+---
 
-### Core Components
+## Core Components
 
 * **Image Backbone**: We use a ResNet50 based DINO ([paper](https://openaccess.thecvf.com/content/ICCV2021/papers/Caron_Emerging_Properties_in_Self-Supervised_Vision_Transformers_ICCV_2021_paper.pdf), [code](https://github.com/facebookresearch/dino)) for image feature extraction, which is a strong self-supervised model.
 
@@ -34,7 +37,7 @@ This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper
 
 ---
 
-### Enviroment
+## Enviroment
 
 ``` bash
 conda env create -f encodec_env.yml
@@ -42,13 +45,13 @@ conda env create -f encodec_env.yml
 
 ---
 
-### Demo/Tutorial
+## Demo/Tutorial
 
 See this ipynb file: [spoken_backbone_tutorial.ipynb](./egs/I2U/spoken_backbone_tutorial.ipynb)
 
 ---
 
-### Usage
+## Usage
 
 * **configuration**: See [config.yml](config.yml). You can specify model params and training params here. Please prepare a json file like [this](transformer_I2S/data/food_dataset_gtts_shuffle.json), and replace the name in the config file.
 
@@ -78,5 +81,5 @@ See this ipynb file: [spoken_backbone_tutorial.ipynb](./egs/I2U/spoken_backbone_
 
 ---
 
-### Licence:
+## Licence:
 MIT [LICENCE](LICENCE) (not official yet, TBD)
