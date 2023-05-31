@@ -4,13 +4,21 @@ This is an repo to implement an image-to-speech synthesizing model by transforme
 
 This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper "[Text-Free Image-To-Speech Synthesis Using Learned Segmental Units](https://wnhsu.github.io/image-to-speech-demo/paper.pdf)", with much updates to improve the system.
 
----
+
+### Table of Contents
+
+* [Model Overview](#model-overview)
+* [Core Components](#core-components)
+* [Environment](#enviroment)
+* [Demo/Tutorial](#demotutorial)
+* [Usage](#usage)
+* [Licence](#licence)
+
 
 ### Model Overview
 
 ![avatar](./doc/model_structure.png)
 
----
 
 ### Core Components
 
