@@ -4,8 +4,6 @@ This is an repo to implement an image-to-speech synthesizing model by transforme
 
 This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper "[Text-Free Image-To-Speech Synthesis Using Learned Segmental Units](https://wnhsu.github.io/image-to-speech-demo/paper.pdf)", with much updates to improve the system.
 
----
-
 ## Table of Contents
 
 * [Model Overview](#model-overview)
@@ -15,13 +13,9 @@ This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper
 * [Usage](#usage)
 * [Licence](#licence)
 
----
-
 ## Model Overview
 
 ![avatar](./doc/model_structure.png)
-
----
 
 ## Core Components
 
@@ -35,21 +29,15 @@ This whole image-to-speech synthesizing work is inspired by W.Hsu's IJCNLP paper
 
 * **I2U**: I2U stands for "Image to Unit", which is a image captioning model. It is a vanilla transformer with customization. You can find all model structure [here](./egs/I2U/models). The current model is innovated by Prefix-tuning ([paper](https://arxiv.org/pdf/2101.00190.pdf), [code](https://github.com/XiangLi1999/PrefixTuning)), which utilized a pretrained LM. In our setting we use image features as prefix to a uLM. You can find customized pytorch transformer based model [here](./egs/I2U/models/models_prompt.py).
 
----
-
 ## Enviroment
 
 ``` bash
 conda env create -f encodec_env.yml
 ```
 
----
-
 ## Demo/Tutorial
 
 See this ipynb file: [spoken_backbone_tutorial.ipynb](./egs/I2U/spoken_backbone_tutorial.ipynb)
-
----
 
 ## Usage
 
@@ -78,8 +66,6 @@ See this ipynb file: [spoken_backbone_tutorial.ipynb](./egs/I2U/spoken_backbone_
     cd ./egs/I2U
     python3 test_incremental_decode.py
     ```
-
----
 
 ## Licence:
 MIT [LICENCE](LICENCE) (not official yet, TBD)
