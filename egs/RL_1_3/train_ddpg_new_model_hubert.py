@@ -51,27 +51,28 @@ is_debug = True if sys.gettrace() else False
 
 # --------------------------------------------------------------------------------
 print("Load u2s2t model")
-# tts_model_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_tts_checkpoint_best.pt"
-# max_decoder_steps = 500
-# code_dict_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_code_dict"
-# hifigan_checkpoint_path = config["u2s"]['hifigan']
+
+# tacotron_max_decoder_step = 500
+# tacotron_checkpoint_path = "../../saved_model/U2S/outdir_VC_hubert_22050_102_warm/checkpoint_33000"
+# hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
 # asr_checkpoint_path = config["asr"]["model_path"]
 
-tacotron_max_decoder_step = 500
-tacotron_checkpoint_path = "../../saved_model/U2S/outdir_VC_hubert_22050_102_warm/checkpoint_33000"
+# tacotron_model = load_tacotron2(
+#     tacotron_checkpoint_path, 
+#     max_decoder_step=tacotron_max_decoder_step,
+#     sr=22050,
+#     vocab_size=102
+# )
+
+# hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
+# asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
+
+tts_model_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_tts_checkpoint_best.pt"
+max_decoder_steps = 500
+code_dict_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_code_dict"
 hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
+tacotron_model, tts_datasets = load_tacotron2_hubert(model_path=tts_model_path, code_dict_path=code_dict_path, max_decoder_steps=max_decoder_steps)
 asr_checkpoint_path = config["asr"]["model_path"]
-
-
-# tacotron_model = load_tacotron(tacotron_checkpoint_path, tacotron_max_decoder_step)
-# tacotron_model, tts_datasets = load_tacotron2_hubert(model_path=tts_model_path, code_dict_path=code_dict_path, max_decoder_steps=max_decoder_steps)
-
-tacotron_model = load_tacotron2(
-    tacotron_checkpoint_path, 
-    max_decoder_step=tacotron_max_decoder_step,
-    sr=22050,
-    vocab_size=102
-)
 
 hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
 asr_model, asr_processor = load_asr(asr_checkpoint_path, device)

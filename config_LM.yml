@@ -14,13 +14,13 @@ i2u:
   wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
   
   #### Used when training models
-  captions_per_image: 1 
+  captions_per_image: 1
   min_word_freq: 1
   # dir_name: SpokenCOCO_LibriSpeech
   # dir_name: SpokenCOCO
   # dir_name: LibriSpeech
   # dir_name: VC_5_captions
-  dir_name: Libri_Light_small_hubert_256
+  dir_name: Libri_Light_medium_hubert_256
 
   #### Model params
   # batch_size: 32
@@ -28,7 +28,7 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 20 # 128
+    batch_size: 128 # 128
     num_workers: 10
     grad_clip: 5.
     lr: 5.0e-4 # set to 4.0e-4 if scheduler = False
@@ -41,9 +41,9 @@ i2u:
     checkpoint_path: #/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar
   
   model_params:
-    d_model: 2048 # 1028
+    d_model: 1024 # 1028
     nhead: 16 # 32
-    num_layers: 24 # 12
+    num_layers: 12 # 12
     activation: "gelu" # “relu”
     layer_norm_eps: 1.0e-5
     batch_first: True

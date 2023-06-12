@@ -14,11 +14,11 @@ i2u:
   wordmap: "../../data/processed/trimmed_mapping_SpeakerALL_Color/WORDMAP_coco_2_cap_per_img_1_min_word_freq.json" # leave out colors
   
   #### Used when training models
-  captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
+  captions_per_image: 4 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   min_word_freq: 1
   # dir_name: origin_5_captions_224
   # dir_name: origin_5_captions_256
-  dir_name: origin_5_captions_256_hubert
+  # dir_name: origin_5_captions_256_hubert
   # dir_name: origin_5_captions_256_hubert_10%
   # dir_name: VC_5_captions_224
   # dir_name: GTTS_5_captions_224
@@ -28,6 +28,7 @@ i2u:
   # dir_name: VC_5_captions_256
   # dir_name: VC_5_captions_320
   # dir_name: SpokenCOCO_5_captions_hubert_256
+  dir_name: origin_4_captions_256_hubert_sentence
 
   # captions_per_image: 2 
   # min_word_freq: 1
@@ -57,8 +58,8 @@ i2u:
     kl_weight: 0.01
     checkpoint_path: # /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/I2U/VC_5_captions_224/fixed_img_1024_no_sentence/bleu-4_BEST_checkpoint_coco_5_cap_per_img_1_min_word_freq_gpu.pth.tar
     gated_decoder: False
-    load_uLM: False
-    freeze_uLM: False
+    load_uLM: True
+    freeze_uLM: True
     freeze_uLM_hard: False
     
   model_params:
@@ -71,9 +72,9 @@ i2u:
     norm_first : True
     dropout: 0.1
     image_backbone: "ResNet"
-    use_sentence_encoder: False
+    use_sentence_encoder: True
     sentence_embed: 8 #16
-    fine_tune_image_encoder: False # Fine tune ResNet's last few layers if image_backbone is "ResNet"
+    fine_tune_image_encoder: True # Fine tune ResNet's last few layers if image_backbone is "ResNet"
     use_refine_encoder: False
     use_global_feature: False
     AR: True
@@ -86,7 +87,7 @@ i2u:
   #   shift_size: 0    # =0  无SW-MSA，仅W-MSA
   #   mlp_ratio: 4
   refine_encoder_params:
-    input_resolution: 7 # 14
+    input_resolution: 8 # 14
     depth: 3
     num_heads: 8
     window_size: 7  # =14 退化为普通MSA结构

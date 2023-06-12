@@ -982,6 +982,8 @@ class TransformerSentenceLM(TransformerConditionedLM):
     def encode_x(self, x, seq_len, seq_padding_mask, verbose):
         z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
         z = z * seq_padding_mask.logical_not().unsqueeze(2)
+
+        # How about only use the first token?
         z = z.sum(dim = 1)/ seq_len.unsqueeze(1)
         mu = self.mu(z)  # (batch, sentence_embed)
         if verbose:

@@ -5,9 +5,9 @@ data:
   # train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
   # valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
   # test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
-  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json
-  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/audios_target_3_mapping_captions.json
-  max_len: 150
+  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_sentence_embedding.json
+  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json
+  max_len: 200
   image_resolution: 256
 
 u2s:
@@ -41,13 +41,14 @@ i2u:
   wordmap: ../../data/processed/Komatsu_4_captions_all_224/WORDMAP_coco_4_cap_per_img_1_min_word_freq.json
   
   #### Used when training models
-  captions_per_image: 5 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
+  captions_per_image: 4 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   #captions_per_image: 1 # change it after LJS U2U
   min_word_freq: 1
   # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
   # dir_name: "encodec1"
   # dir_name: "trimmed_mapping_SpeakerALL_Color"
-  dir_name: VC_5_captions_320
+  # dir_name: VC_5_captions_320
+  dir_name: origin_4_captions_256_hubert_sentence
 
   #### Model params
   # batch_size: 32

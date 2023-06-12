@@ -9,6 +9,7 @@ import soundfile as sf
 import torch
 import json
 import yaml
+from glob import glob
 
 import sys
 sys.path.append("../../egs/")
@@ -77,9 +78,16 @@ def make_units_and_save(manifest_path, save_name):
     
     predictions = []
     for i, feats in enumerate(features_batch):
-        pred = kmeans_model.predict(feats)
-        # pred_str = " ".join(str(p) for p in pred)
-        predictions.append(pred)
+        if feats is not None:
+            pred = kmeans_model.predict(feats)
+            # pred_str = " ".join(str(p) for p in pred)
+            predictions.append(pred)
+        else:
+            # feats is None means sth is wrong
+            # We have to correspondingly del some data:
+            del file_names[i]
+            del file_paths[i]
+            continue
     
     predictions_RLE = {}
 
@@ -109,37 +117,18 @@ def read_manifest(manifest_path):
 
 
 def main():
-    manifest_paths = ["/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_00.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_01.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_02.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_03.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_04.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_05.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_06.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_07.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_08.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_09.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_10.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_manifest_11.txt",
-                      "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_val_manifest_00.txt"]
-    save_names = ["/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_00.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_01.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_02.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_03.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_04.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_05.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_06.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_07.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_08.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_09.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_10.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_train_hubertcap_11.json",
-                    "/net/papilio/storage6/yhaoyuan/SpeechCap/data/SpokenCOCO/SpokenCOCO_val_hubertcap_00.json"]
+    # manifest dir
+    # root_dir = "/net/papilio/storage6/yhaoyuan/SpeechCap/data/libri_light_medium/"
+    # manifest_paths = glob(root_dir+"*.txt")
+    # save_names = [manifest.replace("manifest", "hubertcap").replace("txt", "json") for manifest in manifest_paths]
+    
+    manifest_paths = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps_manifest_00.txt"]
+    save_names = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json"]
 
 
     for manifest_path, save_name in zip(manifest_paths, save_names):
         assert os.path.isfile(manifest_path)
-        # print(manifest_path, save_name)
+        print(f"Processing manifest file {manifest_path}")
         make_units_and_save(manifest_path, save_name)
 
 if __name__ == "__main__":

@@ -338,6 +338,8 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
             norm_first,
             dropout,
             image_backbone,
+            use_sentence_encoder,
+            sentence_embed,
             fine_tune_image_encoder,
             use_refine_encoder,
             use_global_feature,
@@ -375,7 +377,8 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
         # Start decoding
         step = 1
         # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
-        self.LM_decoder.set_prefix(gx)
+        # self.LM_decoder.set_prefix(gx)
+        self.LM_decoder.set_prefix(imgs)
 
         while True:
             # first version
@@ -394,7 +397,7 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
             else:
                 x = self.embed(seqs)  # (1, seq, d_model)
                 x = self.pos_encoder(x)  # (seq, 1, d_model)
-                x, pad_mask, attn_mask = self.prefuse_gx(x, gx = gx, seq_padding_mask = None)
+                x, pad_mask, attn_mask = self.prefuse_gx(x, imgs = imgs, seq_padding_mask = None)
             
             x = self.LM_decoder(
                 src = x, 
@@ -438,7 +441,8 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
                 Use prev_word_inds[incomplete_inds] to sort the keys and values.
             """
             self.reoder_incremental_state(incremental_state, prev_word_inds[incomplete_inds])
-            gx = gx[prev_word_inds[incomplete_inds]]
+            # gx = gx[prev_word_inds[incomplete_inds]]
+            imgs = imgs[prev_word_inds[incomplete_inds]]
             top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
             k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
             # Break if things have been going on too long

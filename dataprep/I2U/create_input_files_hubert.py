@@ -23,7 +23,8 @@ def cut_len(caption, limit_len) -> list:
     return [caption[i:i+limit_len] for i in range(0,len(caption),limit_len)]
 
 def main():
-    data_name = "Libri_Light_small_hubert_256"
+    # data_name = "Libri_Light_small_hubert_256"
+    data_name = "Libri_Light_medium_hubert_256"
 
     if os.path.exists(f'../../data/processed/{data_name}'):
         assert not os.listdir(f'../../data/processed/{data_name}'), "Exist dir, not empty. Choose a new name."
@@ -38,13 +39,16 @@ def main():
     # lbs_train_path = "../../data/I2U/LibriSpeech_train_units_dict.json"
     # lbs_val_path = "../../data/I2U/LibriSpeech_val_units_dict.json"
 
-    libri_light = "../../data/libri_light/libri_light_small_hbcaps.json"
+    # libri_light = "../../data/libri_light/libri_light_small_hbcaps.json"
+    libri_light = "../../data/libri_light/libri_light_medium_hbcaps.json"
     data = read_dict(libri_light)
     train_caps = []
     val_caps = []
     max_len = 0
     
     for i, (k, v) in enumerate(data.items()):
+        if not isinstance(v, list):
+            continue
         max_len = len(v) if len(v) > max_len else max_len
         if len(v) > limit_len:
             temp_caps = cut_len(v, limit_len)

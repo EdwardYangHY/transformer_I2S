@@ -74,10 +74,19 @@ def get_feature_iterator(
             checkpoint_path=checkpoint_path, layer=layer
         )
 
-        def iterate():
+        def iterate_():
             for file_path in file_path_list:
                 feats = reader.get_feats(file_path, channel_id=channel_id)
                 yield feats.cpu().numpy()
+        
+        def iterate():
+            for file_path in file_path_list:
+                try:
+                    feats = reader.get_feats(file_path, channel_id=channel_id)
+                    yield feats.cpu().numpy()
+                except:
+                    feats = None
+                    yield feats
 
     return iterate, num_files
 

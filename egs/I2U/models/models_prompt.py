@@ -30,7 +30,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from models import PositionalEncoding, TransformerLM, TransformerConditionedLM
+from models import PositionalEncoding, TransformerLM, TransformerConditionedLM, TransformerSentenceLM
 from image_encoder import DinoResEncoder, ViTEncoder, DinoResEncoder_NoPool, DinoResEncoder_Pool
 from PureT_encoder import Encoder as refine_encoder
 from typing import Optional, Any, Union, Callable
@@ -38,7 +38,8 @@ from torch import Tensor
 
 import yaml
 
-class TransformerPrefixLM(TransformerConditionedLM):
+# class TransformerPrefixLM(TransformerConditionedLM):
+class TransformerPrefixLM(TransformerSentenceLM):
 
     """
         Here we use a different way of LM.
@@ -58,6 +59,8 @@ class TransformerPrefixLM(TransformerConditionedLM):
         norm_first: bool = True,
         dropout: float = 0.1,
         image_backbone: str = "ResNet",
+        use_sentence_encoder: bool=False,
+        sentence_embed: int = 8,
         fine_tune_image_encoder: bool = False,
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
@@ -75,6 +78,8 @@ class TransformerPrefixLM(TransformerConditionedLM):
             norm_first,
             dropout,
             image_backbone,
+            use_sentence_encoder,
+            sentence_embed,
             fine_tune_image_encoder,
             use_refine_encoder,
             use_global_feature,
@@ -85,6 +90,9 @@ class TransformerPrefixLM(TransformerConditionedLM):
              self.prefix_length = refine_encoder_params["input_resolution"]**2 + 1
         else:
              self.prefix_length = refine_encoder_params["input_resolution"]**2
+        
+        if use_sentence_encoder:
+            self.prefix_length += 1
         
         decoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
         decoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model, dropout= self.dropout,
@@ -123,10 +131,11 @@ class TransformerPrefixLM(TransformerConditionedLM):
         if gx.dim() == 2:
             gx = gx.unsqueeze(dim = 1)
         # cat [img, gx]
-        gx = torch.cat([imgs, gx], dim = 1)
+        if self.use_global_feature:
+            imgs = torch.cat([imgs, gx], dim = 1)
         return imgs, gx
 
-    def prefuse_gx(self, x, gx, seq_padding_mask):
+    def prefuse_gx(self, x, imgs, seq_padding_mask):
         """
             To perform prefix of the input,
             prefusing_gx will be different than previous method:
@@ -140,31 +149,34 @@ class TransformerPrefixLM(TransformerConditionedLM):
                 This section will do nothing but give back previous x and padding_mask,
                 with a newly generated attn_mask
 
-            Now, due to prefix, we have gx' = [img, gx].
+            Now, due to prefix, we have img' = [img, gx].
+            (We should also consider Sentence Embedding, [img, Sentence])
             Which means we always concat sth to previous x:
             If use_global_feature == True:
-                We concate [gx', x] to be: [B, resolution**2+1+T, 1024]
+                We concate [img', x] to be: [B, resolution**2+1+T, 1024]
                 so we have prefix_length = resolution^2+1
             Else if use_global_feature == False:
-                We concate [gx'[:-1] == img, x] to: [B, resolution**2+T, 1024]
+                We concate [img'[:-1] == img, x] to: [B, resolution**2+T, 1024]
                 so we have prefix_length = resolution**2
             So new x will be [B, prefix_length+T, 1024]
             Now for the masks:
                 For padding, we cat none-padding [B, prefix_length, 1024] to previous mask;
                 For atten, we generate VALL-E like mask which always attend to prefix.
         """
+
+        gx = imgs
         if gx.size(0) == 1 and x.size(0) != 1:
             # expand gx to the batch/beam size of x
             gx = gx.expand(x.size(0), 1, gx.size(2))
 
-        if self.use_global_feature:
-            gx = gx
-        else:
-            gx = gx[:,:-1,:]
-        
+        # if self.use_global_feature:
+        #     gx = gx
+        # else:
+        #     gx = gx[:,:-1,:]
         # prefix_length = gx.size(1)
         # if prefix_length <= 1:
         #     raise ValueError
+
         prefix_length = gx.size(1)
         assert prefix_length == self.prefix_length, f"Prefused prefix length {prefix_length} not equals to cfg {self.prefix_length}"
 
@@ -214,9 +226,18 @@ class TransformerPrefixLM(TransformerConditionedLM):
 
         # function get_image_features, already cat [imgs, fx]
         imgs, gx = self.get_image_features(imgs)
+
+        if self.use_sentence_encoder:
+            z, kl_loss = self.encode_x(x, seq_len, seq_padding_mask, verbose=False)
+            # then cat z with imgs ([imgs, gx])
+            z = z.unsqueeze(dim=1)
+            imgs = torch.cat([imgs, z], dim = 1)
+
+        # Note that, now imgs = [imgs, gx (optional), z (optional)]
+        # so img_len
         img_len = imgs.size(1)
 
-        decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, gx, seq_padding_mask)
+        decoder_input, decoder_input_padding_mask, decoder_input_attn_mask = self.prefuse_gx(x, imgs, seq_padding_mask)
 
         if self.AR:
             decoder_output = self.LM_decoder(
@@ -230,13 +251,18 @@ class TransformerPrefixLM(TransformerConditionedLM):
                 src_key_padding_mask = decoder_input_padding_mask
                 )
 
-        if self.use_global_feature:
-            decoder_output = decoder_output[:, img_len+1:, :] # the output lenth should be reduced
-        else:
-            decoder_output = decoder_output[:, img_len:, :]
+        # if self.use_global_feature:
+        #     decoder_output = decoder_output[:, img_len+1:, :] # the output lenth should be reduced
+        # else:
+        #     decoder_output = decoder_output[:, img_len:, :]
+        decoder_output = decoder_output[:, img_len:, :]
 
         decoder_output = self.classifier(decoder_output)
-        return decoder_output, encoded_seq, decode_lenths, sort_ind
+        
+        if self.use_sentence_encoder:
+            return decoder_output, encoded_seq, decode_lenths, sort_ind, kl_loss
+        else:
+            return decoder_output, encoded_seq, decode_lenths, sort_ind
     
     def decode(self, image=None, start_unit: int = None, end_unit: int = None, 
                action: torch.Tensor = None, max_len: int = 500, beam_size: int = 5):
@@ -245,10 +271,9 @@ class TransformerPrefixLM(TransformerConditionedLM):
             device = next(self.parameters()).device
 
             if action is not None:
+                """Here action to image should be caten [imgs, gx, z]"""
                 imgs, gx = self.action_to_image(action)
-                if gx.dim() == 2:
-                    gx = gx.unsqueeze(dim = 1)
-                gx = torch.cat([imgs, gx], dim = 1)
+                # here imgs is [imgs, gx, z] if gx and z are used
             elif image is not None:
                 img = image.to(device)
                 # print(device)
@@ -256,14 +281,13 @@ class TransformerPrefixLM(TransformerConditionedLM):
                 assert img.size(0) == 1, "Inference one image at a time"
                 # imgs, gx = self.image_encoder(img)
                 imgs, gx = self.get_image_features(img)
+                # here imgs is [imgs, gx] if gx is used
             else:
                 print("Input at least one from: Image or Action")
                 raise ValueError
             
-            ''' Here, we have gx = [img, gx] as in the forward function '''
-            assert gx.size(1) > 1, "Image and gx are not concatenated. Please check."
-            # gx_origin = gx
-            # imgs_origin = imgs
+            # ''' Here, we have gx = [img, gx] as in the forward function '''
+            # assert gx.size(1) > 1, "Image and gx are not concatenated. Please check."
             imgs = imgs.expand(beam_size, imgs.size(1), imgs.size(2))
             gx = gx.expand(beam_size, gx.size(1), gx.size(2))
             
@@ -300,7 +324,8 @@ class TransformerPrefixLM(TransformerConditionedLM):
         # Start decoding
         step = 1
         # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
-        self.LM_decoder.set_prefix(gx)
+        # self.LM_decoder.set_prefix(gx)
+        self.LM_decoder.set_prefix(imgs)
 
         while True:
             # first version
@@ -309,7 +334,7 @@ class TransformerPrefixLM(TransformerConditionedLM):
 
             x = self.embed(seqs)  # (1, seq, d_model)
             x = self.pos_encoder(x)  # (seq, 1, d_model)
-            x, pad_mask, attn_mask = self.prefuse_gx(x, gx = gx, seq_padding_mask = None)
+            x, pad_mask, attn_mask = self.prefuse_gx(x, imgs, seq_padding_mask = None)
             
             x = self.LM_decoder(
                 src = x, 
@@ -344,8 +369,8 @@ class TransformerPrefixLM(TransformerConditionedLM):
             if k == 0:
                 break
             seqs = seqs[incomplete_inds]
-            # imgs = imgs[prev_word_inds[incomplete_inds]]
-            gx = gx[prev_word_inds[incomplete_inds]]
+            imgs = imgs[prev_word_inds[incomplete_inds]]
+            # gx = gx[prev_word_inds[incomplete_inds]]
             top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
             k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
             # Break if things have been going on too long
@@ -677,6 +702,8 @@ class prefix_Transformer(TransformerPrefixLM):
             norm_first,
             dropout,
             image_backbone,
+            use_sentence_encoder,
+            sentence_embed,
             fine_tune_image_encoder,
             use_refine_encoder,
             use_global_feature,
@@ -699,3 +726,27 @@ class prefix_Transformer(TransformerPrefixLM):
     
     def load_Pretrained_LM(self, LM_path):
         return super().load_Pretrained_LM(LM_path)
+
+    def action_to_image(self, action, beam_size):
+        if action.size(-1) > 64*2048:
+            fmap = action[:, :64*2048].view(1, 64, 2048)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
+            embed = action[:, 64*2048:]
+            embed = self.make_memory(embed)
+            embed = embed.unsqueeze(1)
+            if self.use_global_feature:
+                m = torch.cat([fmap, gx, embed], dim=1)  # (1, 50, d_model)
+            else:
+                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+            m = m.expand(beam_size, m.size(1), 2048)
+        else:
+            fmap = action[:, :64*2048].view(1, 64, 2048)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
+            if self.use_global_feature:
+                m = torch.cat([fmap, gx], dim=1)  # (1, 50, d_model)
+            m = fmap.expand(beam_size, m.size(1), 2048)
+        return m, gx

@@ -64,7 +64,7 @@ def i2u2s2t(action):
     words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
     # audio = u2s(
     #     words=words,
-    #     tacotron2_model=tacotron_model,
+    #     tacotron2_model=tacotron_model
     #     hifigan_model=hifigan_model,
     #     device=device
     #     )

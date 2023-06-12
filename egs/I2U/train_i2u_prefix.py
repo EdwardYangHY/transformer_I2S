@@ -59,8 +59,11 @@ print_freq = train_params["print_freq"]  # print training/validation stats every
 checkpoint = train_params["checkpoint_path"]  # path to checkpoint, None if none
 use_scheduler = train_params["use_scheduler"]
 
-kl_weight = train_params["kl_weight"]
-
+if model_params["use_sentence_encoder"]:
+    kl_weight = train_params["kl_weight"]
+else:
+    kl_weight = None
+    
 import sys
 is_debug = True if sys.gettrace() else False
 if is_debug:
@@ -171,7 +174,7 @@ def main():
             grad_clip=grad_clip,
             device=device,
             print_freq=print_freq,
-            kl_weight=None
+            kl_weight=kl_weight
         )
         if use_scheduler:
             writer.add_scalar("Train/lr", float(scheduler.get_last_lr()[-1]), epoch)
@@ -191,7 +194,7 @@ def main():
             start_unit=word_map["<start>"],
             end_unit=word_map["<end>"],
             print_freq=print_freq,
-            kl_weight=None
+            kl_weight=kl_weight
         )
 
         # if epoch%10 == 0:

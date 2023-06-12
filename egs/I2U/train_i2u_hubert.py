@@ -16,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append("./models")
 # from models import models_modified
-from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
+from models_modified import TransformerSentenceLM_FixedImg_Pool, TransformerSentenceLM_FixedImg_gated
 
 config_path = '../../config_sentence.yml'
 with open(config_path, 'r') as yml:
@@ -84,7 +84,7 @@ def main():
     if train_params["gated_decoder"]:
         model = TransformerSentenceLM_FixedImg_gated(**model_params)
     else:
-        model = TransformerSentenceLM_FixedImg(**model_params)
+        model = TransformerSentenceLM_FixedImg_Pool(**model_params)
     
     if train_params["load_uLM"]:
         model.load_Pretrained_LM(LM_checkpoint)
@@ -177,18 +177,18 @@ def main():
             kl_weight=kl_weight
         )
 
-        if epoch%10 == 0:
-            recent_bleu4_beam = trainer.validate_beam(
-                val_loader=val_loader_beam,
-                model=model,
-                start_unit=word_map["<start>"],
-                end_unit=word_map["<end>"],
-                epoch=epoch,
-                writer=writer,
-                decode_num=600,
-                device=device
-            )
-            print(f"Beam Search Validation: {recent_bleu4_beam}")
+        # if epoch%10 == 0:
+        #     recent_bleu4_beam = trainer.validate_beam(
+        #         val_loader=val_loader_beam,
+        #         model=model,
+        #         start_unit=word_map["<start>"],
+        #         end_unit=word_map["<end>"],
+        #         epoch=epoch,
+        #         writer=writer,
+        #         decode_num=600,
+        #         device=device
+        #     )
+        #     print(f"Beam Search Validation: {recent_bleu4_beam}")
 
         
 
