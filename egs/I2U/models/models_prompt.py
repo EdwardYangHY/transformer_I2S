@@ -264,6 +264,73 @@ class TransformerPrefixLM(TransformerSentenceLM):
         else:
             return decoder_output, encoded_seq, decode_lenths, sort_ind
     
+    def action_to_image(self, action, beam_size):
+        """
+            Why 49*2048?
+            This is decided by the feature extractor of RL.
+            The image resolution in previous task is 224*224.
+            And ResNet-Dino extract feature map by (resolution/32)^2,
+            and we ignored the classification layers to get raw image
+            features.
+            So the features of img originally from ResNet is:
+            [Batch, 224/32, 224/32, 2048]
+        """
+        resolution = self.image_encoder.adaptive_pool.output_size[0]
+        if action.size(-1) > resolution**2*2048:
+            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048) # (1, 49, 2048)
+            fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+            gx = fmap.mean(1)
+            if gx.dim() == 2:
+                gx = gx.unsqueeze(dim = 1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
+            embed = action[:, resolution**2*2048:]
+            embed = self.make_memory(embed)
+            embed = embed.unsqueeze(1)
+            m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+            m = m.expand(beam_size, resolution**2+1, self.d_model)
+        else:
+            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048)
+            fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+            gx = fmap.mean(1)
+            if self.use_refine_encoder:
+                gx, fmap = self.refine_encoder(fmap)
+            m = fmap.expand(beam_size, resolution**2, self.d_model)
+        return m, gx
+
+    # def action_to_image(self, action, beam_size):
+    #     """
+    #         Why 49*2048?
+    #         This is decided by the feature extractor of RL.
+    #         The image resolution in previous task is 224*224.
+    #         And ResNet-Dino extract feature map by (resolution/32)^2,
+    #         and we ignored the classification layers to get raw image
+    #         features.
+    #         So the features of img originally from ResNet is:
+    #         [Batch, 224/32, 224/32, 2048]
+    #     """
+    #     if action.size(-1) > 49*2048:
+    #         fmap = action[:, :49*2048].view(1, 49, 2048) # (1, 49, 2048)
+    #         fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+    #         gx = fmap.mean(1)
+    #         if gx.dim() == 2:
+    #             gx = gx.unsqueeze(dim = 1)
+    #         if self.use_refine_encoder:
+    #             gx, fmap = self.refine_encoder(fmap)
+    #         embed = action[:, 49*2048:]
+    #         embed = self.make_memory(embed)
+    #         embed = embed.unsqueeze(1)
+    #         m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+    #         m = m.expand(beam_size, 50, self.d_model)
+    #     else:
+    #         fmap = action[:, :49*2048].view(1, 49, 2048)
+    #         fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+    #         gx = fmap.mean(1)
+    #         if self.use_refine_encoder:
+    #             gx, fmap = self.refine_encoder(fmap)
+    #         m = fmap.expand(beam_size, 49, self.d_model)
+    #     return m, gx
+
     def decode(self, image=None, start_unit: int = None, end_unit: int = None, 
                action: torch.Tensor = None, max_len: int = 500, beam_size: int = 5):
         self.eval()
@@ -272,7 +339,7 @@ class TransformerPrefixLM(TransformerSentenceLM):
 
             if action is not None:
                 """Here action to image should be caten [imgs, gx, z]"""
-                imgs, gx = self.action_to_image(action)
+                imgs, gx = self.action_to_image(action, beam_size)
                 # here imgs is [imgs, gx, z] if gx and z are used
             elif image is not None:
                 img = image.to(device)
@@ -727,26 +794,26 @@ class prefix_Transformer(TransformerPrefixLM):
     def load_Pretrained_LM(self, LM_path):
         return super().load_Pretrained_LM(LM_path)
 
-    def action_to_image(self, action, beam_size):
-        if action.size(-1) > 64*2048:
-            fmap = action[:, :64*2048].view(1, 64, 2048)
-            gx = fmap.mean(1)
-            if self.use_refine_encoder:
-                gx, fmap = self.refine_encoder(fmap)
-            embed = action[:, 64*2048:]
-            embed = self.make_memory(embed)
-            embed = embed.unsqueeze(1)
-            if self.use_global_feature:
-                m = torch.cat([fmap, gx, embed], dim=1)  # (1, 50, d_model)
-            else:
-                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-            m = m.expand(beam_size, m.size(1), 2048)
-        else:
-            fmap = action[:, :64*2048].view(1, 64, 2048)
-            gx = fmap.mean(1)
-            if self.use_refine_encoder:
-                gx, fmap = self.refine_encoder(fmap)
-            if self.use_global_feature:
-                m = torch.cat([fmap, gx], dim=1)  # (1, 50, d_model)
-            m = fmap.expand(beam_size, m.size(1), 2048)
-        return m, gx
+    # def action_to_image(self, action, beam_size):
+    #     if action.size(-1) > 64*2048:
+    #         fmap = action[:, :64*2048].view(1, 64, 2048)
+    #         gx = fmap.mean(1)
+    #         if self.use_refine_encoder:
+    #             gx, fmap = self.refine_encoder(fmap)
+    #         embed = action[:, 64*2048:]
+    #         embed = self.make_memory(embed)
+    #         embed = embed.unsqueeze(1)
+    #         if self.use_global_feature:
+    #             m = torch.cat([fmap, gx, embed], dim=1)  # (1, 50, d_model)
+    #         else:
+    #             m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+    #         m = m.expand(beam_size, m.size(1), 2048)
+    #     else:
+    #         fmap = action[:, :64*2048].view(1, 64, 2048)
+    #         gx = fmap.mean(1)
+    #         if self.use_refine_encoder:
+    #             gx, fmap = self.refine_encoder(fmap)
+    #         if self.use_global_feature:
+    #             m = torch.cat([fmap, gx], dim=1)  # (1, 50, d_model)
+    #         m = fmap.expand(beam_size, m.size(1), 2048)
+    #     return m, gx

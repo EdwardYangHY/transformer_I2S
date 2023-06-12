@@ -32,30 +32,30 @@ from incremental_decoder import incremental_prefix_Transformer, TransformerSente
 is_debug = True if sys.gettrace() else False
 
 
-def load_i2u(checkpoint_path, **model_params):
-    params = checkpoint_path.split("/")[-2].split("_")
-    if "gated" in params:
-        model = TransformerSentenceLM_FixedImg_gated(**model_params)
-    else:
-        # model = TransformerSentenceLM_FixedImg(**model_params)
-        model = TransformerSentenceLM_FixedImg_Pool_incremental(**model_params)
-    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
-    return model
+# def load_i2u(checkpoint_path, **model_params):
+#     params = checkpoint_path.split("/")[-2].split("_")
+#     if "gated" in params:
+#         model = TransformerSentenceLM_FixedImg_gated(**model_params)
+#     else:
+#         # model = TransformerSentenceLM_FixedImg(**model_params)
+#         model = TransformerSentenceLM_FixedImg_Pool_incremental(**model_params)
+#     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+#     return model
 
-def load_i2u_prev(checkpoint_path, **model_params):
-    model = TransformerConditionedLM(**model_params)
-    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
-    return model
+# def load_i2u_prev(checkpoint_path, **model_params):
+#     model = TransformerConditionedLM(**model_params)
+#     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+#     return model
 
-def load_i2u_prefix(checkpoint_path, **model_params):
-    model = prefix_Transformer(**model_params)
-    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
-    return model
+# def load_i2u_prefix(checkpoint_path, **model_params):
+#     model = prefix_Transformer(**model_params)
+#     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+#     return model
 
-def load_i2u_increment(checkpoint_path, **model_params):
-    model = incremental_prefix_Transformer(**model_params)
-    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
-    return model
+# def load_i2u_increment(checkpoint_path, **model_params):
+#     model = incremental_prefix_Transformer(**model_params)
+#     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+#     return model
 
 def load_images(data_path, split):
     image_hdf5 = glob(data_path+f"/{split}*.hdf5")[0]
@@ -113,11 +113,7 @@ def evaluate(model_path, word_map_path):
     model_params['vocab_size'] = len(word_map)
     model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
 
-
     i2u_model = load_i2u(model_checkpoint, **model_params)
-    # i2u_model = load_i2u_prev(model_checkpoint, **model_params)
-    # i2u_model = load_i2u_prefix(model_checkpoint, **model_params)
-    # i2u_model = load_i2u_increment(model_checkpoint, **model_params)
     i2u_model.eval()
     i2u_model.to(device)
 
@@ -190,9 +186,17 @@ def evaluate(model_path, word_map_path):
 
 def main():
     # model_paths = ["../../saved_model/I2U/origin_5_captions_256_hubert/prefix_resolution_8_tune_image"]
-    model_paths = ["../../saved_model/I2U/origin_4_captions_256_hubert_sentence/23-06-11_17:57:29_uLM_sentence"] 
+    model_paths = [
+        "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Codec_No_Sentence_7*7",
+        # "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Codec_No_sentence_8*8_tune_img",
+        # "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Prefix_No_sentence_8*8_tune_img",
+        ] 
     # model_paths = ["../../saved_model/I2U/origin_5_captions_256_hubert/hubert_baseline"]
-    word_map_paths = ["../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
+    word_map_paths = [
+        "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
+        # "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
+        # "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
+        ]
 
     for model_path, word_map_path in zip(model_paths, word_map_paths):
         evaluate(model_path, word_map_path)

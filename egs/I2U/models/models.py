@@ -1094,7 +1094,7 @@ class TransformerSentenceLM(TransformerConditionedLM):
         image=None,
         max_len: int = 100,
         beam_size: int = 50,
-        img_feature_map_resolution: int = 7,
+        # img_feature_map_resolution: int = 7,
     ):
         """
         from https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/eval.py
@@ -1117,7 +1117,7 @@ class TransformerSentenceLM(TransformerConditionedLM):
             imgs, gx = self.get_image_features(image)
             m = imgs 
             # m = m.expand(beam_size, 49, self.d_model)
-            m = m.expand(beam_size, img_feature_map_resolution*img_feature_map_resolution, self.d_model)
+            m = m.expand(beam_size, m.size(1), self.d_model)
 
         seq = self.beam_search(
                 imgs=m,

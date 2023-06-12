@@ -3,7 +3,7 @@ from glob import glob
 import json
 import os
 import sys
-import argparse
+
 import gym
 import numpy as np
 import h5py
@@ -79,8 +79,7 @@ asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
 
 # --------------------------------------------------------------------------------
 print("Load i2u model")
-# model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Codec_8_Sentence_7*7"
-model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Prefix_8_sentence_8*8_tune_image"
+model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Prefix_8_Sentence_7*7"
 word_map_path = "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
 config_path = glob(model_path + "/config*.yml")[0]
 model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
@@ -103,8 +102,7 @@ d_embed = 0
 if model_params["use_sentence_encoder"]:
     d_embed = model_params["sentence_embed"]
 
-# i2u_model = load_i2u_codec(model_checkpoint, **model_params)
-i2u_model = load_i2u(model_checkpoint, **model_params)
+i2u_model = load_i2u_prefix(model_checkpoint, **model_params)
 i2u_model.eval()
 i2u_model.to(device)
 # --------------------------------------------------------------------------------
@@ -384,7 +382,7 @@ def test(env, model, num_episode: int = 1000) -> None:
 
 # --------------------------------------------------------------------------------
 
-def main():
+if __name__ == "__main__":
     action_noise = NormalActionNoise(
         mean=np.zeros(49*2048+d_embed+2),
         sigma=np.concatenate([np.zeros(49*2048), 0.3*np.ones(d_embed), np.zeros(2)]),
@@ -410,11 +408,9 @@ def main():
     # --------------------------------------------------------------------------------
     print("Prepare enviroment")
     # NOTE: changed reward
-    image_resolution = i2u_model.image_encoder.adaptive_pool.output_size[0]
-
     env = SpoLacq(
         d_embed=d_embed,
-        d_img_features=image_resolution**2*2048,
+        d_img_features=49*2048,
         # img_list=img_list_train,
         img_hdf5=image_hdf5,
         img_split="TRAIN",
@@ -423,7 +419,7 @@ def main():
     
     eval_env = SpoLacq(
         d_embed=d_embed,
-        d_img_features=image_resolution**2*2048,
+        d_img_features=49*2048,
         # img_list=img_list_eval,
         img_hdf5=image_hdf5,
         img_split="VAL",
@@ -432,13 +428,12 @@ def main():
     
     test_env = SpoLacq(
         d_embed=d_embed,
-        d_img_features=image_resolution**2*2048,
+        d_img_features=49*2048,
         # img_list=img_list_test,
         img_hdf5=image_hdf5,
         img_split="TEST",
         rewards=[1, 0, 0],
         )
-
     features_dim = 2048
     print("Prepare enviroment complete.")
     print("Set up agent.")
@@ -477,13 +472,8 @@ def main():
     # model2.load_param_from_ddpg(CustomDDPG.load("./logs_ddpg_without_embed_icassp/best_model.zip"))
     # model2.fix_param()
     # model2.disable_soft_features()
-    model2.change_image_encoder(i2u_model.image_encoder)
-    model2.change_image_resolution(i2u_model.image_encoder.adaptive_pool.output_size[0])
-    # i2u_model.image_encoder.adaptive_pool.output_size[0]
     if d_embed > 0:
         model2.use_embed()
-
-    """Feature extractors are model2.policy.{actor, actor_target, critic, critic_target}.features_extractor"""
     print("Set up agent complete.")
 
     print("Start Learning.")
@@ -498,11 +488,3 @@ def main():
         )
     
     env.save_rewards("./results/spolacq_tmplog_256_hubert_VC_no_sentence_pos/rl_accuracy.npy")
-
-if __name__ == "__main__":
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('-s', '--spoken_backbone', type=str, default=None,
-    #                     required=True, help='spoken backbone checkpoint path')
-    # parser.add_argument('-n', '--save_name', type=str, default=None,
-    #                     required=True, help='save name for this experiment')
-    main()

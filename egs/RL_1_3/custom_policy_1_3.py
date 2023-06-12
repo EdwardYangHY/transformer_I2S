@@ -95,6 +95,7 @@ class CustomFeaturesExtractorCNN(BaseFeaturesExtractor):
         self.state_net = nn.Linear(observation_space.spaces["state"].shape[0], self.features_dim)
         self.fc = nn.Linear(2048, self.features_dim)
         self.relu = nn.ReLU()
+        self.image_resolution = 7
     
     def forward(self, observation: Dict[str, th.Tensor]):
         state = self.state_net(observation["state"])
@@ -104,8 +105,8 @@ class CustomFeaturesExtractorCNN(BaseFeaturesExtractor):
             leftimage_features = self.cnn(observation["leftimage"])  # (batch, 49, 2048)
             rightimage_features = self.cnn(observation["rightimage"])  # (batch, 49, 2048)
 
-            flatten_leftimage_features = leftimage_features.reshape(-1, 49*2048)
-            flatten_rightimage_features = rightimage_features.reshape(-1, 49*2048)
+            flatten_leftimage_features = leftimage_features.reshape(-1, self.image_resolution**2*2048)
+            flatten_rightimage_features = rightimage_features.reshape(-1, self.image_resolution**2*2048)
             leftmean_features = th.mean(leftimage_features, dim=1)
             rightmean_features = th.mean(rightimage_features, dim=1)
         
@@ -205,7 +206,7 @@ class CustomMu(nn.Module):
         self.fc4 = nn.Linear(net_arch[1][1], net_arch[1][2], bias=False)
         self.activation_fn = activation_fn()
         self.soft_image_features = soft_image_features # True
-        self.use_embed = False
+        self.use_embed = False  #
         self.layernorm = nn.LayerNorm(net_arch[1][2])
 
     def forward(self, x):
@@ -325,17 +326,18 @@ class QNetCNN(nn.Module):
         self.activation_fn = activation_fn()
         self.use_embed = False
         self.feature_dim = features_dim
+        self.image_resolution = 7
 
         self.fc_img_feat = nn.Linear(2048, self.feature_dim)
         # self.sigmoid = nn.Sigmoid()
     
     def forward(self, x):
         f = x[:, :self.feature_dim*3]
-        img_feat = x[:, self.feature_dim*3:self.feature_dim*3+49*2048]
+        img_feat = x[:, self.feature_dim*3:self.feature_dim*3+self.image_resolution**2*2048]
         if self.use_embed:
-            embed = x[:, self.feature_dim*3+49*2048:-2]
+            embed = x[:, self.feature_dim*3+self.image_resolution**2*2048:-2]
 
-        img_feat = img_feat.view(-1, 49, 2048)
+        img_feat = img_feat.view(-1, self.image_resolution**2, 2048)
         img_feat = th.mean(img_feat, dim=1)
         if self.feature_dim != 2048:
             img_feat = self.fc_img_feat(img_feat)  # (batch, self.feature_dim*3)
@@ -766,6 +768,30 @@ class CustomDDPG(TD3):
         self.policy.actor.mu.fc1.load_state_dict(model.policy.actor.mu.fc1.state_dict())
         self.policy.actor.mu.fc2.load_state_dict(model.policy.actor.mu.fc2.state_dict())
     
+    def change_image_encoder(self, image_encoder):
+        # Firstly, load image_encoder's state dict.
+        # This is to make sure that tuned image_encoder will be updated
+        self.policy.actor.features_extractor.cnn.load_state_dict(image_encoder.state_dict())
+        self.policy.actor_target.features_extractor.cnn.load_state_dict(image_encoder.state_dict())
+        self.policy.critic.features_extractor.cnn.load_state_dict(image_encoder.state_dict())
+        self.policy.critic_target.features_extractor.cnn.load_state_dict(image_encoder.state_dict())
+        
+        # Secondly, change adaptive_pool layer
+        # This is to make sure the same Image_Resolution
+        self.policy.actor.features_extractor.cnn.adaptive_pool = image_encoder.adaptive_pool
+        self.policy.actor_target.features_extractor.cnn.adaptive_pool = image_encoder.adaptive_pool
+        self.policy.critic.features_extractor.cnn.adaptive_pool = image_encoder.adaptive_pool
+        self.policy.critic_target.features_extractor.cnn.adaptive_pool = image_encoder.adaptive_pool
+    
+    def change_image_resolution(self, resolution):
+        self.policy.actor.features_extractor.image_resolution = int(resolution)
+        self.policy.actor_target.features_extractor.image_resolution = int(resolution)
+        self.policy.critic.features_extractor.image_resolution = int(resolution)
+        self.policy.critic_target.features_extractor.image_resolution = int(resolution)
+
+        self.policy.critic.qf0.image_resolution = int(resolution)
+        self.policy.critic_target.qf0.image_resolution = int(resolution)
+        
     def _dump_logs(self) -> None:
         """
         Write log.

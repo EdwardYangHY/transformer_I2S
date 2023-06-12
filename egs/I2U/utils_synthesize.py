@@ -35,6 +35,8 @@ sys.path.append("/net/papilio/storage2/yhaoyuan/transformer_I2S/egs/I2U/models")
 from models import TransformerConditionedLM
 # from models_modified import TransformerSentenceLM_FixedImg
 from models_modified import TransformerSentenceLM_FixedImg_Pool, TransformerSentenceLM_FixedImg_gated
+from models_prompt import TransformerPrefixLM, prefix_Transformer
+from incremental_decoder import incremental_prefix_Transformer, TransformerSentenceLM_FixedImg_Pool_incremental
 
 def load_tacotron2(model_path, max_decoder_step = None, sr = None, vocab_size = None):
     hparams = create_hparams()
@@ -83,16 +85,45 @@ def load_asr(model_path, device):
     asr_model.eval()
     return asr_model, processor
 
-def load_i2u(checkpoint_path, model_config_path, vocab_size):
-    with open(model_config_path, "r") as yml:
-        model_config = yaml.safe_load(yml)
-    model_params = model_config["i2u"]["model_params"]
-    model_params['vocab_size'] = vocab_size
-    model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
-    
-    model = TransformerSentenceLM_FixedImg_Pool(**model_params)
+def load_i2u_codec(checkpoint_path, **model_params):
+    params = checkpoint_path.split("/")[-2].split("_")
+    if "gated" in params:
+        model = TransformerSentenceLM_FixedImg_gated(**model_params)
+        print("A codec gated decoder is loaded.")
+    else:
+        # model = TransformerSentenceLM_FixedImg(**model_params)
+        model = TransformerSentenceLM_FixedImg_Pool_incremental(**model_params)
+        print("A codec incremental decoder is loaded.")
     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
     return model
+
+def load_i2u_prefix(checkpoint_path, **model_params):
+    model = incremental_prefix_Transformer(**model_params)
+    # model = prefix_Transformer(**model_params)
+    model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+    print("A prefix incremental decoder is loaded.")
+    return model
+
+def load_i2u(checkpoint_path, **model_params):
+    model_name = checkpoint_path.split("/")[-2].split("_")[0]
+    if model_name.lower() == "codec":
+        return load_i2u_codec(checkpoint_path, **model_params)
+    elif model_name.lower() == "prefix":
+        return load_i2u_prefix(checkpoint_path, **model_params)
+    else:
+        raise ValueError("The model structure is not specified/implied by the model's path. \
+            please us \"load_i2u_codec/prefix\" instead. ")
+    return
+# def load_i2u(checkpoint_path, model_config_path, vocab_size):
+#     with open(model_config_path, "r") as yml:
+#         model_config = yaml.safe_load(yml)
+#     model_params = model_config["i2u"]["model_params"]
+#     model_params['vocab_size'] = vocab_size
+#     model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
+    
+#     model = TransformerSentenceLM_FixedImg_Pool(**model_params)
+#     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+#     return model
 
 def load_u2s(device):
     with open('../../config.yml') as yml:

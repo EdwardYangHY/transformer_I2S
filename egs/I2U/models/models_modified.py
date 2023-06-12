@@ -186,24 +186,25 @@ class TransformerSentenceLM_FixedImg_Pool(TransformerSentenceLM):
             So the features of img originally from ResNet is:
             [Batch, 224/32, 224/32, 2048]
         """
-        if action.size(-1) > 49*2048:
-            fmap = action[:, :49*2048].view(1, 49, 2048) # (1, 49, 2048)
+        resolution = self.image_encoder.adaptive_pool.output_size[0]
+        if action.size(-1) > resolution**2*2048:
+            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048) # (1, 49, 2048)
             fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
             gx = fmap.mean(1)
             if self.use_refine_encoder:
                 gx, fmap = self.refine_encoder(fmap)
-            embed = action[:, 49*2048:]
+            embed = action[:, resolution**2*2048:]
             embed = self.make_memory(embed)
             embed = embed.unsqueeze(1)
             m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-            m = m.expand(beam_size, 50, self.d_model)
+            m = m.expand(beam_size, resolution**2+1, self.d_model)
         else:
-            fmap = action[:, :49*2048].view(1, 49, 2048)
+            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048)
             fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
             gx = fmap.mean(1)
             if self.use_refine_encoder:
                 gx, fmap = self.refine_encoder(fmap)
-            m = fmap.expand(beam_size, 49, self.d_model)
+            m = fmap.expand(beam_size, resolution**2, self.d_model)
         return m, gx
     
     def load_Pretrained_LM(self, LM_path):
