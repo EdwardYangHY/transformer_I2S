@@ -1,6 +1,7 @@
 import time
 import yaml
 import sys
+import socket
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
@@ -18,9 +19,14 @@ sys.path.append("./models")
 # from models import models_modified
 from models_prompt import TransformerPrefixLM, prefix_Transformer
 
-config_path = '../../config_sentence.yml'
+# config_path = '../../config_sentence.yml'
+config_path = '../../config_prefix.yml'
 with open(config_path, 'r') as yml:
     config = yaml.safe_load(yml)
+
+print(f"Training data name: {config['i2u']['dir_name']}")
+print(f"Training params: {config['i2u']['train_params']}")
+print(f"Model params: {config['i2u']['model_params']}")
 
 dir_name = config["i2u"]["dir_name"]
 model_params = config["i2u"]["model_params"]
@@ -32,7 +38,7 @@ if os.path.exists(f'../../data/processed/{dir_name}/'):
 elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
     data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
 else:
-    raise ValueError
+    raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
 
 data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
 
@@ -71,7 +77,7 @@ if is_debug:
     train_ID = "debugging_uLM_sentence"
 else:
     print("Training mode")
-    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_prefix"
+    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_prefix" + f"_{socket.gethostname()}"
 
 def main():
     """
@@ -160,7 +166,7 @@ def main():
     writer = SummaryWriter(f"../../saved_model/I2U/{dir_name}/{train_ID}/log")
     # writer = None
     # Copy config to present model dir to keep record
-    shutil.copyfile(config_path, f"../../saved_model/I2U/{dir_name}/{train_ID}/config_sentence.yml")
+    shutil.copyfile(config_path, f"../../saved_model/I2U/{dir_name}/{train_ID}/config_prefix.yml")
 
     for epoch in range(start_epoch, epochs):
         

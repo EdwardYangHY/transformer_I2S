@@ -696,3 +696,211 @@ class TransformerVAEwithCNN(TransformerVAE):
         else:
             seq = []
         return seq
+
+class TransformerVAEwithCNN_Modified(TransformerVAE):
+    def __init__(
+        self,
+        vocab_size: int,
+        d_embed: int = 16, # 16
+        d_model: int = 2048,
+        nhead: int = 2048//64,
+        num_layers: int = 6,
+        activation="gelu",
+        layer_norm_eps: float = 1e-5,
+        batch_first: bool = True,
+        norm_first: bool = True,
+        max_len: int = 150, # 150
+        ):
+        super().__init__(
+            vocab_size,
+            d_embed,
+            d_model,
+            nhead,
+            num_layers,
+            activation,
+            layer_norm_eps,
+            batch_first,
+            norm_first,
+        )
+        self.pos_encoder=PositionalEncoding(d_model=d_model, max_len=max_len+2)
+        self.cnn = ResNet50()
+        self.vocab_size = vocab_size
+    
+    def forward(
+        self,
+        image,
+        x,
+        padding_mask,
+        seq_len,
+        # x: torch.Tensor,
+        # padding_mask: torch.BoolTensor,
+        # seq_len,
+        # image: torch.Tensor,
+        use_encoder: bool = True,
+        verbose: bool = False,
+    ):
+        """
+        padding_mask:
+            True is pad
+            False is other
+        """
+        seq_len, sort_ind = seq_len.sort(dim=0, descending=True)
+        image = image[sort_ind]
+        encoded_seq = x[sort_ind]
+        decode_lenths = (seq_len - 1).tolist()
+        max_length = max(decode_lenths)
+        x = encoded_seq[:, :max_length]
+        padding_mask = padding_mask[:, :max_length]
+
+        self.train()
+        x = self.embed(x)  # (batch, seq, d_model)
+        x = x.permute(1, 0, 2)  # (seq, batch, d_model)
+        x = self.pos_encoder(x)  # (seq, batch, d_model)
+        x = x.permute(1, 0, 2)  # (batch, seq, d_model)
+        if use_encoder:
+            z = self.encoder(x, src_key_padding_mask=padding_mask)  # (batch, seq, d_model)
+            z = z * padding_mask.logical_not().unsqueeze(2)  # (batch, seq, d_model)
+            z = z.sum(dim=1) / seq_len.unsqueeze(1)  # (batch, d_model)
+
+            # Reparameterization trick
+            mu = self.mu(z)  # (batch, d_embed)
+            if verbose:
+                print("mu", mu, flush=True)
+            # log_std = self.log_std(z)  # (batch, d_embed)
+            log_std = torch.full_like(mu, 0.1).log()
+            eps = torch.randn_like(log_std)  # (batch, d_embed)
+            z = mu + eps*log_std.exp()  # (batch, d_embed)
+            z = self.make_memory(z)  # (batch, d_model)
+        
+        with torch.no_grad():
+            self.cnn.eval()
+            y = self.cnn(image)  # (batch, 49, 2048)
+        
+        if use_encoder:
+            z = torch.cat([y, z.unsqueeze(1)], dim=1)  # (batch, 2, d_model)
+        else:
+            # z = torch.stack([y], dim=1)  # (batch, 1, d_model)
+            z = y
+
+        x = self.decoder(
+            x,
+            z,
+            tgt_mask=self.generate_square_subsequent_mask(x.size(dim=1)).to(x.device),
+            tgt_key_padding_mask=padding_mask,
+            )  # (batch, seq, d_model)
+        
+        x = self.classifier(x)  # (batch, seq, vocab_size)
+        if use_encoder:
+            return x, encoded_seq, decode_lenths, sort_ind, self.kl_loss(mu, log_std)
+        else:
+            return x, encoded_seq, decode_lenths, sort_ind, 0
+    
+    def get_mu(self, x, seq_len, padding_mask):
+        x = self.embed(x)  # (batch, seq, d_model)
+        x = x.permute(1, 0, 2)  # (seq, batch, d_model)
+        x = self.pos_encoder(x)  # (seq, batch, d_model)
+        x = x.permute(1, 0, 2)  # (batch, seq, d_model)
+        z = self.encoder(x, src_key_padding_mask=padding_mask)  # (batch, seq, d_model)
+        z = z * padding_mask.logical_not().unsqueeze(2)  # (batch, seq, d_model)
+        z = z.sum(dim=1) / seq_len.unsqueeze(1)  # (batch, d_model)
+
+        # Reparameterization trick
+        mu = self.mu(z)  # (batch, d_embed)
+        return mu
+
+    @torch.inference_mode()
+    def decode(
+        self,
+        start_unit: int,
+        end_unit: int,
+        action: torch.Tensor = None,
+        x=None,
+        padding_mask=None,
+        seq_len=None,
+        image=None,
+        max_len: int = 100,
+        beam_size: int = 50,
+    ):
+        """
+        from https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/eval.py
+        """
+        self.eval()
+        if action is not None:
+            if action.size(-1) > 49*2048:
+                fmap = action[:, :49*2048].view(1, 49, 2048)
+                embed = action[:, 49*2048:]
+                embed = self.make_memory(embed)
+                embed = embed.unsqueeze(1)
+                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+                m = m.expand(beam_size, 50, 2048)
+            else:
+                fmap = action[:, :49*2048].view(1, 49, 2048)
+                m = fmap.expand(beam_size, 49, 2048)
+        elif x is None:
+            m = self.cnn(image)  # (1, d_model)
+            m = m.expand(beam_size, 49, 2048)
+
+        k = beam_size
+        # Tensor to store top k previous words at each step; now they're just <start>
+        k_prev_words = torch.LongTensor([[start_unit]] * k).to(m.device)  # (k, 1)
+        # Tensor to store top k sequences; now they're just <start>
+        seqs = k_prev_words  # (k, 1)
+        # Tensor to store top k sequences' scores; now they're just 0
+        top_k_scores = torch.zeros(k, 1).to(m.device)  # (k, 1)
+        # Lists to store completed sequences and scores
+        complete_seqs = list()
+        complete_seqs_scores = list()
+        # Start decoding
+        step = 1
+        # s is a number less than or equal to k, because sequences are removed from this process once they hit <end>
+        while True:
+            x = self.embed(seqs)  # (1, seq, d_model)
+            x = x.permute(1, 0, 2)  # (seq, 1, d_model)
+            x = self.pos_encoder(x)  # (seq, 1, d_model)
+            x = x.permute(1, 0, 2)  # (1, seq, d_model)
+            x = self.decoder(
+                x,
+                m,
+                tgt_mask=self.generate_square_subsequent_mask(x.size(dim=1)).to(x.device),
+                )  # (1, seq, d_model)
+            scores = self.classifier(x[:, -1, :])  # (1, vocab_size)
+            scores = F.log_softmax(scores, dim=1)
+            # Add
+            scores = top_k_scores.expand_as(scores) + scores  # (s, vocab_size)
+            # For the first step, all k points will have the same scores (since same k previous words, h, c)
+            if step == 1:
+                top_k_scores, top_k_words = scores[0].topk(k, 0, True, True)  # (s)
+            else:
+                # Unroll and find top scores, and their unrolled indices
+                top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
+            # Convert unrolled indices to actual indices of scores
+            prev_word_inds = torch.div(top_k_words, self.vocab_size, rounding_mode="floor")  # (s)
+            next_word_inds = top_k_words % self.vocab_size  # (s)
+            # Add new words to sequences
+            seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
+            # Which sequences are incomplete (didn't reach <end>)?
+            incomplete_inds = [ind for ind, next_word in enumerate(next_word_inds) if next_word != end_unit]
+            complete_inds = list(set(range(len(next_word_inds))) - set(incomplete_inds))
+            # Set aside complete sequences
+            if len(complete_inds) > 0:
+                complete_seqs.extend(seqs[complete_inds].tolist())
+                complete_seqs_scores.extend(top_k_scores[complete_inds])
+            k -= len(complete_inds)  # reduce beam length accordingly
+            # Proceed with incomplete sequences
+            if k == 0:
+                break
+            seqs = seqs[incomplete_inds]
+            m = m[prev_word_inds[incomplete_inds]]
+            top_k_scores = top_k_scores[incomplete_inds].unsqueeze(1)
+            k_prev_words = next_word_inds[incomplete_inds].unsqueeze(1)
+            # Break if things have been going on too long
+            if step > max_len:
+                break
+            step += 1
+        
+        if len(complete_seqs_scores) != 0:
+            i = complete_seqs_scores.index(max(complete_seqs_scores))
+            seq = complete_seqs[i]
+        else:
+            seq = []
+        return seq

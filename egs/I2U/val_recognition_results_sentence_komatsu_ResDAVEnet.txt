@@ -1,0 +1,104 @@
+I want Accuracy     		0.2                 
+Ground Truth        		Answer              
+----------------------------------------------------------------------------------------------------
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		I WANT AN APPLE     
+AN APPLE            		I WANT AN APPLE     
+A RED APPLE         		I WANT AN APPLE     
+I WANT AN APPLE     		I WANT AN APPLE     
+APPLE               		I WANT AN APPLE     
+AN APPLE            		I WANT AN APPLE     
+A RED APPLE         		I WANT AN APPLE     
+I WANT AN APPLE     		I WANT AN APPLE     
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		AN APPLE            
+AN APPLE            		AN APPLE            
+A RED APPLE         		AN APPLE            
+I WANT AN APPLE     		AN APPLE            
+APPLE               		I WANT AN APPLE     
+AN APPLE            		I WANT AN APPLE     
+A RED APPLE         		I WANT AN APPLE     
+I WANT AN APPLE     		I WANT AN APPLE     
+APPLE               		APPLE               
+AN APPLE            		APPLE               
+A RED APPLE         		APPLE               
+I WANT AN APPLE     		APPLE               
+APPLE               		APPLE               
+AN APPLE            		APPLE               
+A RED APPLE         		APPLE               
+I WANT AN APPLE     		APPLE               
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		I WANT AN APPLE     
+AN APPLE            		I WANT AN APPLE     
+A RED APPLE         		I WANT AN APPLE     
+I WANT AN APPLE     		I WANT AN APPLE     
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		AN APPLE            
+AN APPLE            		AN APPLE            
+A RED APPLE         		AN APPLE            
+I WANT AN APPLE     		AN APPLE            
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		I WANT AN APPLE     
+AN APPLE            		I WANT AN APPLE     
+A RED APPLE         		I WANT AN APPLE     
+I WANT AN APPLE     		I WANT AN APPLE     
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		A RED APPLE         
+AN APPLE            		A RED APPLE         
+A RED APPLE         		A RED APPLE         
+I WANT AN APPLE     		A RED APPLE         
+APPLE               		APPLE               
+AN APPLE            		APPLE               
+A RED APPLE         		APPLE               
+I WANT AN APPLE     		APPLE               
+BANANA              		BANANA              
+A BANHANA           		BANANA              
+A YELLOW BANANA     		BANANA              
+I WANT A BANANA     		BANANA              
+BANANA              		BANANA              
+A BANHANA           		BANANA              
+A YELLOW BANANA     		BANANA              
+I WANT A BANANA     		BANANA              
+BANANA              		BANANA              
+A BANHANA           		BANANA              
+A YELLOW BANANA     		BANANA              
+I WANT A BANANA     		BANANA              
+BANANA              		A BANHANA           
+A BANANA            		A BANHANA           
+A YELLOW BANANA     		A BANHANA           
+I WANT A BANANA     		A BANHANA           
+BANANA              		A BANHANA           
+A BANHANA           		A BANHANA           
+A YELLOW BANANA     		A BANHANA           
+I WANT A BANANA     		A BANHANA           
+BANANA              		A BANHANA           

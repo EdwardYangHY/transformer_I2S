@@ -60,18 +60,6 @@ def main():
         else:
             for c in temp_caps:
                 val_caps.append(c)
-
-    # word_freq = Counter()
-    # for caption in train_caps:
-    #     # for caption in captions:
-    #     word_freq.update(caption)
-
-    # words = [w for w in word_freq.keys() if word_freq[w] > min_word_freq]
-    # word_map = {k: v + 1 for v, k in enumerate(words)}
-    # word_map['<unk>'] = len(word_map) + 1
-    # word_map['<start>'] = len(word_map) + 1
-    # word_map['<end>'] = len(word_map) + 1
-    # word_map['<pad>'] = 0
     
     output_folder=f'../../data/processed/{data_name}/'
     base_filename = "coco" + '_' + str(1) + '_cap_per_img_' + str(1) + '_min_word_freq'

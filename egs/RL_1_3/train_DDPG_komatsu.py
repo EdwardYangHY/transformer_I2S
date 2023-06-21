@@ -7,6 +7,7 @@ import argparse
 import gym
 import numpy as np
 import h5py
+import socket
 from PIL import Image
 from imageio import imread
 import resampy
@@ -20,140 +21,7 @@ from custom_policy_1_3 import CustomTD3PolicyCNN, CustomDDPG, CustomTD3PolicyCNN
 
 sys.path.append("../I2U")
 from utils_synthesize import *
-from judge_asr import judge_ans, get_image_info
-
-# sys.path.append("../..")
-# import hifigan
-# from hifigan.env import AttrDict
-# from hifigan.models import Generator
-
-# sys.path.append("../U2S")
-# from hparams import create_hparams
-# from train import load_model
-# from text import text_to_sequence
-
-
-# sys.path.append("../I2U")
-# from models import TransformerSentenceLM
-# from models_k import TransformerVAEwithCNN
-# from models_modified import TransformerSentenceLM_FixedImg
-
-# config path需要更改
-with open('../../config.yml') as yml:
-    config = yaml.safe_load(yml)
-
-if 'u2u' not in config.keys():
-    config['u2u'] = {}
-    config['u2u']['d_embed'] = 8
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-is_debug = True if sys.gettrace() else False
-
-# --------------------------------------------------------------------------------
-print("Load u2s2t model")
-
-# tacotron_max_decoder_step = 500
-# tacotron_checkpoint_path = "../../saved_model/U2S/outdir_VC_hubert_22050_102_warm/checkpoint_33000"
-# hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
-# asr_checkpoint_path = config["asr"]["model_path"]
-
-# tacotron_model = load_tacotron2(
-#     tacotron_checkpoint_path, 
-#     max_decoder_step=tacotron_max_decoder_step,
-#     sr=22050,
-#     vocab_size=102
-# )
-
-# hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
-# asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
-
-tts_model_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_tts_checkpoint_best.pt"
-max_decoder_steps = 500
-code_dict_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/gslm_models/u2S/HuBERT_KM100_code_dict"
-hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
-tacotron_model, tts_datasets = load_tacotron2_hubert(model_path=tts_model_path, code_dict_path=code_dict_path, max_decoder_steps=max_decoder_steps)
-asr_checkpoint_path = config["asr"]["model_path"]
-
-hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
-asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
-
-# --------------------------------------------------------------------------------
-print("Load i2u model")
-# model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Codec_8_Sentence_7*7"
-model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Prefix_8_sentence_8*8_tune_image"
-word_map_path = "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
-config_path = glob(model_path + "/config*.yml")[0]
-model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
-
-# Load word map (word2ix)
-global word_map, rev_word_map, special_words
-with open(word_map_path) as j:
-    word_map = json.load(j)
-rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
-special_words = {"<unk>", "<start>", "<end>", "<pad>"}
-
-with open(config_path, 'r') as yml:
-    model_config = yaml.safe_load(yml)
-
-model_params = model_config["i2u"]["model_params"]
-model_params['vocab_size'] = len(word_map)
-model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
-
-d_embed = 0
-if model_params["use_sentence_encoder"]:
-    d_embed = model_params["sentence_embed"]
-
-# i2u_model = load_i2u_codec(model_checkpoint, **model_params)
-i2u_model = load_i2u(model_checkpoint, **model_params)
-i2u_model.eval()
-i2u_model.to(device)
-# --------------------------------------------------------------------------------
-
-def i2u2s2t(action):
-    action = torch.from_numpy(action).unsqueeze(0).to(device)
-    seqs = i2u_model.decode(action=action, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
-        
-    words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
-    # audio = u2s(
-    #     words=words,
-    #     tacotron2_model=tacotron_model,
-    #     hifigan_model=hifigan_model,
-    #     device=device
-    #     )
-    audio = u2s_hubert(
-        words=words,
-        tacotron2_model=tacotron_model,
-        tts_dataset=tts_datasets,
-        hifigan_model=hifigan_model,
-        device=device
-        )
-    
-    trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
-    return trans
-
-def i2u2s2t_img(transformed_img):
-    img = torch.FloatTensor(transformed_img).unsqueeze(0).to(device)
-    seqs = i2u_model.decode(image=img, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
-     
-    words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
-    audio = u2s(
-        words=words,
-        tacotron2_model=tacotron_model,
-        hifigan_model=hifigan_model,
-        device=device
-        )
-    # audio = u2s_hubert(
-    #     words=words,
-    #     tacotron2_model=tacotron_model,
-    #     tts_dataset=tts_datasets,
-    #     hifigan_model=hifigan_model,
-    #     device=device
-    #     )
-    
-    trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
-    return trans
-
-# --------------------------------------------------------------------------------
+# from judge_asr import judge_ans, get_image_info
 
 def load_images(data_path, split):
     image_hdf5 = glob(data_path+f"/{split}*.hdf5")[0]
@@ -166,6 +34,58 @@ def load_images(data_path, split):
     # for i in range(len(names)):
     #     imgs.append(images[i])
     return images, names
+
+def i2u2s2t(action):
+    action = torch.from_numpy(action).unsqueeze(0).to(device)
+    seqs = i2u_model.decode(action=action, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
+        
+    words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
+
+    ### This is for Tacotron2 trained by ourselves
+    audio = u2s(
+        words=words,
+        tacotron2_model=tacotron_model,
+        hifigan_model=hifigan_model,
+        device=device
+        )
+
+    ### This is for Tacotron2 trained by GSLM
+    # audio = u2s_hubert(
+    #     words=words,
+    #     tacotron2_model=tacotron_model,
+    #     tts_dataset=tts_datasets,
+    #     hifigan_model=hifigan_model,
+    #     device=device
+    #     )
+    trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
+    return trans
+
+# def i2u2s2t_img(transformed_img):
+#     img = torch.FloatTensor(transformed_img).unsqueeze(0).to(device)
+#     seqs = i2u_model.decode(image=img, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
+#     words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
+#     audio = u2s_hubert(
+#         words=words,
+#         tacotron2_model=tacotron_model,
+#         tts_dataset=tts_datasets,
+#         hifigan_model=hifigan_model,
+#         device=device
+#         )    
+#     trans = s2t(audio=audio, asr_model=asr_model, asr_processor=asr_processor, device=device)
+#     return trans
+
+def judge_ans_komatsu(transcription, image_name):
+    # ans = transcription.split(" ")
+    right_ans = False
+    right_name = False
+    transcription = transcription.upper()
+    transcription_ans = image_name.replace("_", " ").upper()
+    if transcription_ans in transcription:
+        right_name = True
+        if "WANT" in transcription:
+            right_ans = True
+
+    return right_ans, right_name
 
 class SpoLacq(gym.Env):
     def __init__(
@@ -228,7 +148,7 @@ class SpoLacq(gym.Env):
                 img = img[:, :, np.newaxis]
                 img = np.concatenate([img, img, img], axis=2)
             # img = imresize(img, (256, 256))
-            resolution = 224
+            resolution = 256
             image = np.array(Image.fromarray(img).resize((resolution, resolution)))
 
             # image = Image.open(img_path)
@@ -303,32 +223,27 @@ class SpoLacq(gym.Env):
         else:
             self.rl_rewards.append(0)
 
-        # TODO: 改变 transcription的judge方式，参考：
-        # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
-
         if transcription[:7] == "I WANT ":
             self.utt_rewards.append(1)
         else:
             self.utt_rewards.append(0)
 
         img_path = self.img_list[ans_num]
-        # img_path = img_path.split("/")[-1]
-        # right_ans, right_name = judge_ans(transcription, img_path)
-        right_ans, right_name = judge_ans(transcription, img_path)
-        print(
-            self.num_step,
-            get_image_info(self.img_list[self.data_num1]),
-            get_image_info(self.img_list[self.data_num2]),
-            f"ANSWER: {get_image_info(img_path)}",
-            flush=True,
-            )
+        right_ans, right_name = judge_ans_komatsu(transcription, img_path)
         # print(
         #     self.num_step,
-        #     get_image_info(self.img_list[self.data_num1].split("/")[-1]),
-        #     get_image_info(self.img_list[self.data_num2].split("/")[-1]),
+        #     get_image_info(self.img_list[self.data_num1]),
+        #     get_image_info(self.img_list[self.data_num2]),
         #     f"ANSWER: {get_image_info(img_path)}",
         #     flush=True,
         #     )
+        print(
+            self.num_step,
+            self.img_list[self.data_num1],
+            self.img_list[self.data_num2],
+            f"ANSWER: {transcription}",
+            flush=True,
+            )
         if right_ans:
             print(self.rewards[0], self.num_step, transcription, flush=True)
             return self.rewards[0]
@@ -338,28 +253,6 @@ class SpoLacq(gym.Env):
         else:
             print(self.rewards[2], self.num_step, transcription, flush=True)
             return self.rewards[2]
-
-        # transcription_ans = img_path.split("/")[5].replace("_", " ").upper()
-        # preposition = 'an' if transcription_ans[0] in ['A', 'O', 'E'] else 'a'
-        # print(
-        #     self.num_step,
-        #     self.img_list[self.data_num1].split("/")[5],
-        #     self.img_list[self.data_num2].split("/")[5],
-        #     f"ANSWER: {transcription_ans}",
-        #     flush=True,
-        #     )
-        # if transcription_ans in transcription:
-        #     if f"i want {preposition} {transcription_ans}".upper() == transcription:
-        #         print(self.rewards[0], self.num_step, transcription, flush=True)
-        #         return self.rewards[0]
-        #     else:
-        #         print(self.rewards[1], self.num_step, transcription, flush=True)
-        #         return self.rewards[1]
-        # else:
-        #     print(self.rewards[2], self.num_step, transcription, flush=True)
-        #     return self.rewards[2]
-        
-        # ---------------------------
     
     def save_rewards(self, path):
         np.save(path, np.array(self.rl_rewards))
@@ -384,33 +277,141 @@ def test(env, model, num_episode: int = 1000) -> None:
 
 # --------------------------------------------------------------------------------
 
-def main():
+def main(save_name, spoken_backbone, word_map_path = None):
+    # Sanity Check.
+    if not os.path.isdir(spoken_backbone):
+        raise ValueError(f"{spoken_backbone} should be a model dir that contains ckpt and config.")
+    
+    is_debug = True if sys.gettrace() else False
+    if is_debug:
+        print("Debugging Mode")
+        save_name = "debugging"
+    else:
+        save_name = save_name + "_" + socket.gethostname()
+    # elif os.path.isdir(f'./results/logs_{save_name}'):
+    #     #raise ValueError("This dir exists. Change the dir name to prevent overwriting.")
+    #     pass
+    # print("Training Mode")
+    
+
+    # config path需要更改
+    with open('../../config.yml') as yml:
+        config = yaml.safe_load(yml)
+
+    if 'u2u' not in config.keys():
+        config['u2u'] = {}
+        config['u2u']['d_embed'] = 8
+
+    global device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    is_debug = True if sys.gettrace() else False
+
+    # --------------------------------------------------------------------------------
+    print("Load u2s2t model")
+
+    global tacotron_model, tts_datasets, hifigan_model, asr_model, asr_processor
+    # ### Pre-trained GSLM's U2S model
+    # tts_model_path = "../../gslm_models/u2S/HuBERT_KM100_tts_checkpoint_best.pt"
+    # max_decoder_steps = 500
+    # code_dict_path = "../../gslm_models/u2S/HuBERT_KM100_code_dict"
+    # tacotron_model, tts_datasets = load_tacotron2_hubert(model_path=tts_model_path, code_dict_path=code_dict_path, max_decoder_steps=max_decoder_steps)
+    
+    ### U2S model trained on synthesized speech
+    tts_model_path = "../../saved_model/U2S/outdir_komatsu_hubert_22050/checkpoint_9000_warmstart"
+    tacotron_model = load_tacotron2(model_path=tts_model_path, max_decoder_step = 500, sr = 22050, vocab_size = 102)
+
+    ### HifiGAN model for 22050 hz speech.
+    hifigan_checkpoint_path = "../../hifigan/LJ_FT_T2_V3/generator_v3"
+    hifigan_model = load_hifigan(hifigan_checkpoint_path, device)
+
+    # asr_checkpoint_path = config["asr"]["model_path"]
+    asr_checkpoint_path = "../../saved_model/ASR/wav2vec2-synthesize"
+    asr_model, asr_processor = load_asr(asr_checkpoint_path, device)
+
+    # --------------------------------------------------------------------------------
+    print("Load i2u model")
+    # model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Codec_8_Sentence_7*7"
+    # model_path = "../../saved_model/I2U/origin_4_captions_256_hubert_sentence/Prefix_8_sentence_8*8_tune_image"
+    model_path = spoken_backbone
+    if is_debug:
+        # if socket.gethostname() == "pikaia25":
+        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Prefix_baseline_BLEU_12.5"
+        # elif socket.gethostname() == "pikaia28":
+        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12"
+        # else:
+        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
+        model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
+
+    if word_map_path is None:
+        word_map_path = "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"
+    else:
+        word_map_path = word_map_path
+
+    config_path = glob(model_path + "/config*.yml")[0]
+    model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+    if not os.path.isfile(config_path):
+        raise ValueError(f"{config_path} invalid. Please check the model path.")
+    if not os.path.isfile(model_checkpoint):
+        raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
+
+    # Load word map (word2ix)
+    global word_map, rev_word_map, special_words, i2u_model
+    with open(word_map_path) as j:
+        word_map = json.load(j)
+    rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+    special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+
+    with open(config_path, 'r') as yml:
+        model_config = yaml.safe_load(yml)
+
+    model_params = model_config["i2u"]["model_params"]
+    model_params['vocab_size'] = len(word_map)
+    model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
+
+    d_embed = 0
+    if model_params["use_sentence_encoder"]:
+        d_embed = model_params["sentence_embed"]
+
+    # i2u_model = load_i2u_codec(model_checkpoint, **model_params)
+    i2u_model = load_i2u(model_checkpoint, **model_params)
+    i2u_model.eval()
+    i2u_model.to(device)
+    
+    image_resolution = i2u_model.image_encoder.adaptive_pool.output_size[0]
+
+    # should we change 0.3 ?
     action_noise = NormalActionNoise(
-        mean=np.zeros(49*2048+d_embed+2),
-        sigma=np.concatenate([np.zeros(49*2048), 0.3*np.ones(d_embed), np.zeros(2)]),
+        mean=np.zeros(image_resolution**2*2048+d_embed+2),
+        sigma=np.concatenate([np.zeros(image_resolution**2*2048), 0.3*np.ones(d_embed), np.zeros(2)]),
         )
     
     # --------------------------------------------------------------------------------
     # TODO: change the file lists by new divided json files.
     # see /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json
-    img_data_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json"
-    with open(img_data_path, "r") as f:
-        img_data = json.load(f)
-    img_list_train = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["train"]]
-    img_list_eval = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["val"]]
-    img_list_test = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["test"]]
     
+    # img_data_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_VC_shuffle.json"
+    # with open(img_data_path, "r") as f:
+    #     img_data = json.load(f)
+    # img_list_train = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["train"]]
+    # img_list_eval = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["val"]]
+    # img_list_test = [img_data["image_base_path"] + pairdata["image"] for pairdata in img_data["data"]["test"]]
+    
+    img_list_train = glob('/net/papilio/storage2/yhaoyuan/LAbyLM/data/I2U/image/*/train_number*/*.jpg')
+    img_list_eval = glob('/net/papilio/storage2/yhaoyuan/LAbyLM/data/I2U/image/*/train_number*/*.jpg')
+    img_list_test = glob('/net/papilio/storage2/yhaoyuan/LAbyLM/data/I2U/image/*/test_number3/*.jpg')
+
     if is_debug:
         img_list_train = img_list_train[:10]
         img_list_eval = img_list_eval[:1]
         img_list_test = img_list_test[:1]
 
-    image_hdf5 = f"../../data/RL/256"
+    # image_hdf5 = f"../../data/RL/256"
+    image_hdf5 = f"../../data/RL/komatsu_256"
     
     # --------------------------------------------------------------------------------
     print("Prepare enviroment")
     # NOTE: changed reward
-    image_resolution = i2u_model.image_encoder.adaptive_pool.output_size[0]
+    # image_resolution = i2u_model.image_encoder.adaptive_pool.output_size[0]
 
     env = SpoLacq(
         d_embed=d_embed,
@@ -439,7 +440,7 @@ def main():
         rewards=[1, 0, 0],
         )
 
-    features_dim = 2048
+    features_dim = 2048 # 2048 or 50 ?
     print("Prepare enviroment complete.")
     print("Set up agent.")
     model2 = CustomDDPG(
@@ -450,10 +451,10 @@ def main():
         buffer_size=config["rl"]["buffer_size"],
         learning_starts=config["rl"]["learning_starts"],
         batch_size=config["rl"]["batch_size"],
-        train_freq=4,
+        # train_freq=4,
         # action_noise=action_noise,
         replay_buffer_kwargs = dict(handle_timeout_termination=False),
-        tensorboard_log='./results/spolacq_tmplog_256_hubert_VC_no_sentence_pos/',
+        tensorboard_log=f'./results/logs_{save_name}',
         # policy_kwargs=dict(
         #     net_arch=dict(
         #         pi=[[150, 75, 2], [150, 75, config["u2u"]["d_embed"]]],
@@ -488,21 +489,24 @@ def main():
 
     print("Start Learning.")
     model2.learn(
-        total_timesteps=50000, # 50000
+        total_timesteps=20000, # 50000
         # total_timesteps=100,
         #'''Removed in version 1.7.0'''
         eval_env=eval_env,
-        eval_freq=1000, # 1000
-        n_eval_episodes=config["rl"]["n_eval_episodes_ddpg"],
-        eval_log_path="./results/logs_ddpg_256_hubert_VC_no_sentence_pos/",
+        eval_freq=200, # 1000
+        n_eval_episodes=100, #config["rl"]["n_eval_episodes_ddpg"]
+        eval_log_path=f'./results/logs_{save_name}',
         )
     
-    env.save_rewards("./results/spolacq_tmplog_256_hubert_VC_no_sentence_pos/rl_accuracy.npy")
+    env.save_rewards(f"./results/logs_{save_name}/rl_accuracy.npy")
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('-s', '--spoken_backbone', type=str, default=None,
-    #                     required=True, help='spoken backbone checkpoint path')
-    # parser.add_argument('-n', '--save_name', type=str, default=None,
-    #                     required=True, help='save name for this experiment')
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-n', '--save_name', type=str, default=None,
+                        required=True, help='save name for this experiment')
+    parser.add_argument('-s', '--spoken_backbone', type=str, default=None,
+                        required=True, help='spoken backbone checkpoint path')
+    parser.add_argument('-w', '--word_map_path', type=str, default=None,
+                        help='Word map path if not a hubert model.')
+    args = parser.parse_args()
+    main(args.save_name, args.spoken_backbone, args.word_map_path)

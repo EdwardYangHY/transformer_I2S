@@ -1,0 +1,21 @@
+i2u:
+  None
+
+u2s:
+  Komatsu_food_synthesized(22050HZ):
+    ResDAVEnet-VQ_k: /net/papilio/storage2/yhaoyuan/Komatsu_ICASSP/spolacq/models/U2S/outdir/checkpoint_40000
+    ResDAVEnet-VQ: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/U2S_synthesize/checkpoint_40000
+    HuBERT: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/U2S/outdir_komatsu_hubert_22050/checkpoint_9000_warmstart
+  
+HifiGAN:
+  22050HZ:
+    model_path: /net/papilio/storage2/yhaoyuan/transformer_I2S/hifigan/LJ_FT_T2_V3/generator_v3
+    config_path: /net/papilio/storage2/yhaoyuan/transformer_I2S/hifigan/LJ_FT_T2_V3/config.json
+  22050HZ_k:
+    model_path: /net/papilio/storage2/yhaoyuan/Komatsu_ICASSP/spolacq/models/hifi-gan/g_02500000
+    config_path: /net/papilio/storage2/yhaoyuan/Komatsu_ICASSP/spolacq/models/hifi-gan/config.json
+
+ASR:
+  tuned_by_Komatsu_food: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/wav2vec2-synthesize
+  tuned_by_Record_food: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/asr_model(original data)
+  tuned_by_LJS: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/wav2vec2-base-tuned-ljs

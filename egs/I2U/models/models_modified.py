@@ -158,13 +158,16 @@ class TransformerSentenceLM_FixedImg_Pool(TransformerSentenceLM):
             # self.image_encoder = DinoResEncoder_NoPool()
             self.image_encoder = DinoResEncoder_Pool(encoded_image_size = refine_encoder_params["input_resolution"]) # out = [batch, 2048, resolution/32, resolution/32]
             self.image_encoder.fine_tune(fine_tune_image_encoder)
+            self.image_encoder_embedding = nn.Linear(2048, d_model)
+        elif image_backbone.upper() == "VIT":
+            self.image_encoder = ViTEncoder()
+            self.image_encoder_embedding = nn.Linear(768, d_model)
         else:
             raise NotImplementedError
         
         # encoded_image_size = refine_encoder_params["input_resolution"]
         # self.image_pooling = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
-        self.image_encoder_embedding = nn.Linear(2048, d_model)
-    
+        
     def get_image_features(self, imgs):
         imgs, gx = self.image_encoder(imgs)       # (Batch, 7*7, 2048)
         imgs = self.image_encoder_embedding(imgs) # (Batch, 7*7, d_model)
@@ -186,25 +189,52 @@ class TransformerSentenceLM_FixedImg_Pool(TransformerSentenceLM):
             So the features of img originally from ResNet is:
             [Batch, 224/32, 224/32, 2048]
         """
-        resolution = self.image_encoder.adaptive_pool.output_size[0]
-        if action.size(-1) > resolution**2*2048:
-            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048) # (1, 49, 2048)
-            fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
-            gx = fmap.mean(1)
-            if self.use_refine_encoder:
-                gx, fmap = self.refine_encoder(fmap)
-            embed = action[:, resolution**2*2048:]
-            embed = self.make_memory(embed)
-            embed = embed.unsqueeze(1)
-            m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-            m = m.expand(beam_size, resolution**2+1, self.d_model)
+        if "ViT" in self.image_encoder.__class__.__name__:
+            if action.size(-1) > 768:
+                fmap = action[:, :768].view(1, 1, 768)
+                fmap = self.image_encoder_embedding(fmap)
+                gx = fmap.mean(1)
+                if gx.dim() == 2:
+                    gx = gx.unsqueeze(dim = 1)
+                if self.use_refine_encoder:
+                    gx, fmap = self.refine_encoder(fmap)
+                embed = action[:, 768:]
+                embed = self.make_memory(embed)
+                embed = embed.unsqueeze(1)
+                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+                m = m.expand(beam_size, 2, self.d_model)
+            else:
+                fmap = action[:, :768].view(1, 1, 768)
+                fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+                gx = fmap.mean(1)
+                if gx.dim() == 2:
+                    gx = gx.unsqueeze(dim = 1)
+                if self.use_refine_encoder:
+                    gx, fmap = self.refine_encoder(fmap)
+                m = fmap.expand(beam_size, 1, 768)
+        elif "DinoResEncoder" in self.image_encoder.__class__.__name__:
+            resolution = self.image_encoder.adaptive_pool.output_size[0]
+            if action.size(-1) > resolution**2*2048:
+                fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048) # (1, 49, 2048)
+                fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+                gx = fmap.mean(1)
+                if self.use_refine_encoder:
+                    gx, fmap = self.refine_encoder(fmap)
+                embed = action[:, resolution**2*2048:]
+                embed = self.make_memory(embed)
+                embed = embed.unsqueeze(1)
+                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+                m = m.expand(beam_size, resolution**2+1, self.d_model)
+            else:
+                fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048)
+                fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+                gx = fmap.mean(1)
+                if self.use_refine_encoder:
+                    gx, fmap = self.refine_encoder(fmap)
+                m = fmap.expand(beam_size, resolution**2, self.d_model)
         else:
-            fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048)
-            fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
-            gx = fmap.mean(1)
-            if self.use_refine_encoder:
-                gx, fmap = self.refine_encoder(fmap)
-            m = fmap.expand(beam_size, resolution**2, self.d_model)
+            print(f"Image encoder:{self.image_encoder.__class__.__name__} not supported")
+            raise NotImplementedError
         return m, gx
     
     def load_Pretrained_LM(self, LM_path):

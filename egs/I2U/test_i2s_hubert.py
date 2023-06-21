@@ -211,7 +211,8 @@ def main():
                    "../../saved_model/I2U/origin_5_captions_256_hubert/prefix_resolution_14_tune_image"]
     word_map_paths = ["../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json",
                       "../../data/processed/origin_5_captions_256_hubert/WORDMAP_coco_5_cap_per_img_1_min_word_freq.json"]
-
+    
+    
     for model_path, word_map_path in zip(model_paths, word_map_paths):
         evaluate(model_path, word_map_path)
 

@@ -27,7 +27,7 @@ from train import load_model
 from text import text_to_sequence
 
 
-sys.path.append("../I2U")
+sys.path.append("../I2U/models")
 # from models import TransformerSentenceLM
 from models_k import TransformerVAEwithCNN
 
@@ -50,7 +50,7 @@ special_words = {"<unk>", "<start>", "<end>", "<pad>"}
 # I2U
 config["u2u"] = {}
 config["u2u"]["d_embed"] = 8
-sentence_encoder = TransformerVAEwithCNN(len(word_map), config["u2u"]["d_embed"])
+sentence_encoder = TransformerVAEwithCNN(len(word_map), config["u2u"]["d_embed"], max_len=100)
 sentence_encoder.load_state_dict(torch.load("../../saved_model/U2U/transformer_cnn2_synthesize.pt"))
 sentence_encoder.eval()
 sentence_encoder.to(device)
@@ -59,6 +59,7 @@ sentence_encoder.to(device)
 print("Preparing U2S model")
 hparams = create_hparams()
 hparams.sampling_rate = 22050
+hparams.n_symbols=1024
 
 # tacotron2
 checkpoint_path = "../../saved_model/U2S_synthesize/checkpoint_40000"
@@ -69,7 +70,8 @@ tacotron2_model.cuda().eval()
 # HiFi-GAN
 # /net/papilio/storage2/yhaoyuan/LAbyLM/dataprep/RL/image2speech_inference.ipynb
 
-checkpoint_file = config["u2s"]['hifigan']
+checkpoint_file = "../../hifigan/LJ_FT_T2_V3/generator_v3"
+# checkpoint_file = config["u2s"]['hifigan']
 config_file = os.path.join(os.path.split(checkpoint_file)[0], 'config.json')
 with open(config_file) as f:
         data = f.read()
@@ -306,7 +308,7 @@ if __name__ == "__main__":
         train_freq=4,
         action_noise=action_noise,
         replay_buffer_kwargs = dict(handle_timeout_termination=False),
-        tensorboard_log='./spolacq_tmplog_synthesize/',
+        tensorboard_log='./spolacq_tmplog_Reproduce/',
         policy_kwargs=dict(
             net_arch=dict(
                 pi=[[150, 75, 2], [150, 75, config["u2u"]["d_embed"]]],
@@ -321,16 +323,16 @@ if __name__ == "__main__":
 
     print("Start Learning.")
     model2.learn(
-        total_timesteps=50000,
+        total_timesteps=20000,
         # total_timesteps=100,
         #'''Removed in version 1.7.0'''
-        # eval_env=eval_env,
-        # eval_freq=1000,
-        # n_eval_episodes=config["rl"]["n_eval_episodes_ddpg"],
-        # eval_log_path="./logs_ddpg_embed_icassp/",
+        eval_env=eval_env,
+        eval_freq=1000,
+        n_eval_episodes=config["rl"]["n_eval_episodes_ddpg"],
+        eval_log_path="./spolacq_tmplog_Reproduce_eval/",
         )
     
-    env.save_rewards("./spolacq_tmplog_synthesizeg/rl_accuracy.npy")
+    env.save_rewards("./spolacq_tmplog_Reproduce/rl_accuracy.npy")
 
 
 

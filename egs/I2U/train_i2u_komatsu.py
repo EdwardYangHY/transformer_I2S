@@ -16,7 +16,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 sys.path.append("./models")
 # from models import models_modified
-from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
+# from models_modified import TransformerSentenceLM_FixedImg, TransformerSentenceLM_FixedImg_gated
+from models_k import TransformerVAEwithCNN_Modified
 
 config_path = '../../config_sentence.yml'
 with open(config_path, 'r') as yml:
@@ -27,11 +28,13 @@ model_params = config["i2u"]["model_params"]
 train_params = config["i2u"]["train_params"]
 
 # Data parameters
-data_folder = f'../../data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+if os.path.exists(f'../../data/processed/{dir_name}/'):
+    data_folder = f'../../data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
+    data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
+else:
+    raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
 data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
-
-LM_checkpoint = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/PP_15.6512/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar"
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
 # device = torch.device("cpu")
@@ -80,17 +83,25 @@ def main():
     model_params["refine_encoder_params"] = img_refine_params
     # ----------------------------------------------------------------
 
-    ### Not gated model ###
-    if train_params["gated_decoder"]:
-        model = TransformerSentenceLM_FixedImg_gated(**model_params)
-    else:
-        model = TransformerSentenceLM_FixedImg(**model_params)
+    model = TransformerVAEwithCNN_Modified(
+        vocab_size=model_params['vocab_size'],
+        d_embed=8, # 16
+        d_model=2048,
+        nhead=16,
+        num_layers=6,
+        activation="gelu",
+        layer_norm_eps=1e-5,
+        batch_first=True,
+        norm_first=True,
+        max_len=150, # 150
+    )
     
-    if train_params["load_uLM"]:
-        model.load_Pretrained_LM(LM_checkpoint)
-        if train_params["freeze_uLM"] and not train_params["gated_decoder"]:
-            model.freeze_LM()
-
+    # ### Not gated model ###
+    # if train_params["gated_decoder"]:
+    #     model = TransformerSentenceLM_FixedImg_gated(**model_params)
+    # else:
+    #     model = TransformerSentenceLM_FixedImg(**model_params)
+    
 
     optimizer = getattr(torch.optim, train_params["optimizer"])(model.parameters(), lr=train_params["lr"])
 

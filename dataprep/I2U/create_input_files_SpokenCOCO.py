@@ -32,9 +32,7 @@ def main():
     else:
         os.mkdir(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}')
 
-    max_len = 200
-    # max_len = 100
-
+    max_len = 200 #200
     base_path = "/net/tateha/storage2/database/misc/SpokenCOCO/SpokenCOCO/"
     train_split_json = "SpokenCOCO_train_augmented.json"
     val_split_json = "SpokenCOCO_val_augmented.json"

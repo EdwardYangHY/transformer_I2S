@@ -122,8 +122,8 @@ def main():
     # manifest_paths = glob(root_dir+"*.txt")
     # save_names = [manifest.replace("manifest", "hubertcap").replace("txt", "json") for manifest in manifest_paths]
     
-    manifest_paths = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps_manifest_00.txt"]
-    save_names = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json"]
+    manifest_paths = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu/audios_komatsu_hbcaps_manifest.txt"]
+    save_names = ["/net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu/audios_komatsu_hbcaps.json"]
 
 
     for manifest_path, save_name in zip(manifest_paths, save_names):

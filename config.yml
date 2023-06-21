@@ -5,10 +5,15 @@ data:
   # train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
   # valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
   # test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
-  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_sentence_embedding.json
-  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json
-  max_len: 200
-  image_resolution: 256
+  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_sentence_embedding_3.json
+  # wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json
+  
+  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_Komatsu.json
+  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_Komatsu_30_percent.json
+  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu_hubert/audios_komatsu_hbcaps.json
+  # wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu_ResDAVEnet/audios_komatsu_ResDAVEcaps.json
+  max_len: 100
+  image_resolution: 224
 
 u2s:
   # In domain
@@ -19,8 +24,8 @@ u2s:
   max_decoder_steps: 500
   
   batch_size: 64
-  filelists_train: "../../data/U2S/filelists_gtts_hubert/ljs_audio_text_train_filelist.txt"
-  filelists_val: "../../data/U2S/filelists_gtts_hubert/ljs_audio_text_val_filelist.txt"
+  filelists_train: "../../data/U2S/filelists_Komatsu_hubert_22050/ljs_audio_text_train_filelist.txt"
+  filelists_val: "../../data/U2S/filelists_Komatsu_hubert_22050/ljs_audio_text_val_filelist.txt"
   
   #### hifigan as vocoder of the system ####
   # make sure that hifigan's sr are the same with tacotron2
@@ -29,6 +34,7 @@ u2s:
 asr:
   model_path: "/net/papilio/storage2/yhaoyuan/LAbyLM/model/ASR/wav2vec2-base-tuned/checkpoint-3000"
   # model_path: "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/wav2vec2-base-tuned-ljs/checkpoint-4000"
+  # model_path: "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/ASR/wav2vec2-synthesize"  # for synthesized speech
 
 i2u:
   #### Used when inferencing
@@ -48,7 +54,9 @@ i2u:
   # dir_name: "encodec1"
   # dir_name: "trimmed_mapping_SpeakerALL_Color"
   # dir_name: VC_5_captions_320
-  dir_name: origin_4_captions_256_hubert_sentence
+  # dir_name: origin_3_captions_256_hubert_sentence
+  # dir_name: komatsu_4_captions_224_ResDAVEnet_30_percent
+  dir_name: komatsu_4_captions_224_hubert_30_percent
 
   #### Model params
   # batch_size: 32

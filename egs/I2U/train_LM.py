@@ -1,6 +1,7 @@
 import time
 import sys
 import yaml
+import socket
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
@@ -74,7 +75,7 @@ if is_debug:
     train_ID = "debugging_sentence"
 else:
     print("Training mode")
-    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_sentence"
+    train_ID = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) )[2:].replace(" ", "_") + "_sentence" + f"_{socket.gethostname()}"
 # train_ID = "debugging"
 
 # def get_lr_schedule(optimizer, num_warmup_epochs: int = 10, d_model: int = 2048):
@@ -112,6 +113,7 @@ def main():
     #     scheduler = get_lr_schedule(optimizer, train_params["warmup_epoch"], model_params["d_model"])
     if checkpoint is not None:
         # model, optimizer, start_epoch, best_bleu4, best_accuracy, best_perplexity = load_checkpoint(checkpoint, model, optimizer, device)
+        print(f"loading from chechpoint {checkpoint}")
         cp_state_dict = torch.load(checkpoint)
         cp_state_dict = cp_state_dict["model_state_dict"]
         model.load_state_dict(cp_state_dict, strict=True)

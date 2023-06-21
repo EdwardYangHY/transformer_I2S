@@ -75,6 +75,7 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
     # word_map['<pad>'] = 0
 
     word_map_path = "../../data/processed/WORDMAP_HUBERT.json"
+    # word_map_path = "../../data/processed/WORDMAP_ResDAVEnet.json"
     print(f"Using word map from: {word_map_path}")
     print(f"Resizing Image Resolution: {resolution}")
     print(f"Max token len: {max_len}")

@@ -165,77 +165,44 @@ class DinoResEncoder_Pool(nn.Module):
             for p in c.parameters():
                 p.requires_grad = fine_tune
 
-# class DinoResEncoder_Raw(nn.Module):
-#     def __init__(self):
-#         super(DinoResEncoder_Raw, self).__init__()
-#         resnet = resnet50(weights=None)
-#         resnet.fc = torch.nn.Identity()
-#         resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
-
-#         # Remove linear and pool layers (since we're not doing classification)
-#         modules = list(resnet.children())[:-2]
-#         self.resnet = nn.Sequential(*modules)
-#         self.fine_tune()
-
-#     def forward(self, images):
-#         """
-#         Forward propagation.
-
-#         :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
-#         :return: encoded images
-#         """
-#         out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
-#         # out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
-#         # batch_size = out.size(0)
-#         # now_embedding_dim = out.size(-1)
-#         # out = out.view(batch_size, -1 , now_embedding_dim)
-#         # gx = out.mean(1)
-#         return out
-
-#     def fine_tune(self, fine_tune=False):
-#         """
-#         Allow or prevent the computation of gradients for convolutional blocks 2 through 4 of the encoder.
-
-#         :param fine_tune: Allow?
-#         """
-#         for p in self.resnet.parameters():
-#             p.requires_grad = False
-#         # If fine-tuning, only fine-tune convolutional blocks 2 through 4
-#         for c in list(self.resnet.children())[5:]:
-#             for p in c.parameters():
-#                 p.requires_grad = fine_tune
-
 class ViTEncoder(nn.Module):
     '''
         Only take image size as [224, 224].
         Please try to resize the image before training.
     '''
-    def __init__(self, patch_size = 16, qkv_bias=True, embed_dim=2048):
+    def __init__(self, patch_size = 8, qkv_bias=True):
         super(ViTEncoder, self).__init__()
-        self.vit = VisionTransformer(img_size=[224],patch_size=patch_size, qkv_bias=qkv_bias)
-        # state_dict = torch.hub.load_state_dict_from_url(
-        #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
-        #     map_location="cuda",
-        # )
-        # self.vit.load_state_dict(state_dict)
-        self.vit.load_state_dict(torch.load("../../saved_model/dino_vitbase16_pretrain.pth"))
-        self.vit.eval()
-        self.to_embedding = nn.Linear(768, embed_dim)
-        self.init_weights()
-
-    def init_weights(self):
-        """
-        Initializes some parameters with values from the uniform distribution.
-        """
-        self.to_embedding.weight.data.uniform_(-0.1, 0.1)
+        if patch_size == 8:
+            self.image_encoder = VisionTransformer(patch_size=8, qkv_bias=True)
+            # state_dict = torch.hub.load_state_dict_from_url(
+            #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
+            #     map_location="cpu",
+            # )
+            # self.image_encoder.load_state_dict(state_dict)
+            saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase8_pretrain.pth"
+            self.image_encoder.load_state_dict(torch.load(saved_ckpt))
+            
+        elif patch_size == 16:
+            self.image_encoder = VisionTransformer(patch_size=16, qkv_bias=True)
+            # state_dict = torch.hub.load_state_dict_from_url(
+            #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
+            #     map_location="cpu",
+            # )
+            # self.image_encoder.load_state_dict(state_dict)
+            saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase16_pretrain.pth"
+            self.image_encoder.load_state_dict(torch.load(saved_ckpt))
+        else:
+            raise ValueError(f"Only patch_size == 8 or 16 is supported by ViT, while {patch_size} is not.")
+        self.image_encoder.eval()
+        # self.to_embedding = nn.Linear(768, embed_dim)
+        # self.init_weights()
+    
     def forward(self, images):
-        H, W = images.size(2), images.size(3)
-        if H != 224:
-            resize = transforms.Resize([224,224])
-            images = resize(images)
-        out = self.vit(images)  # (batch_size, 1 + 14*14, 768)
-        out = self.to_embedding(out) # (batch_size, 1 + 14*14, embedding_dim)
-        return out[:,1:], out[:,0]
+        out = self.image_encoder(images)  # (batch_size, 1 + 14*14, 768)
+        # out = self.to_embedding(out) # (batch_size, 1 + 14*14, embedding_dim)
+        # return out[:,1:], out[:,0]
+        return out[:,0].unsqueeze(dim=1), out[:,1:]
+        # return out
 
 
 class STEncoder(nn.Module):

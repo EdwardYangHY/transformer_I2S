@@ -28,7 +28,7 @@ i2u:
   # epoch: 80
 
   train_params:
-    batch_size: 128 # 128
+    batch_size: 64 # 128
     num_workers: 10
     grad_clip: 5.
     lr: 5.0e-4 # set to 4.0e-4 if scheduler = False
@@ -38,7 +38,7 @@ i2u:
     use_scheduler: True
     print_freq: 1000
     kl_weight: 0.01
-    checkpoint_path: #/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar
+    checkpoint_path: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar
   
   model_params:
     d_model: 1024 # 1028

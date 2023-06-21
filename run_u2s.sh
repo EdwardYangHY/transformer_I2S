@@ -3,8 +3,10 @@ cd dataprep/U2S
 
 # out_dir=../../model/U2S/outdir_Origin_5_captions
 # out_dir=../../model/U2S/VC_5_captions
-out_dir=../../model/U2S/outdir_gtts_hubert_scratch
+
+# out_dir=../../saved_model/U2S/outdir_gtts_hubert_scratch
 # checkpoint=/net/papilio/storage2/yhaoyuan/LAbyLM/model/U2S/outdir_kimura/Best_checkpoint_158000
+out_dir=../../saved_model/U2S/outdir_komatsu_hubert_22050
 
 #filelists作成
 echo "make filelists"
