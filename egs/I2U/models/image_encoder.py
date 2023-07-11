@@ -22,7 +22,8 @@ class DinoResEncoder(nn.Module):
         #resnet = resnet50(pretrained=False) # pretrained will be removed in higher version 
         resnet = resnet50(weights=None)
         resnet.fc = torch.nn.Identity()
-        resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        # resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        resnet.load_state_dict(torch.load("/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_resnet50_pretrain.pth"))
 
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(resnet.children())[:-2]
@@ -77,7 +78,9 @@ class DinoResEncoder_NoPool(nn.Module):
         super(DinoResEncoder_NoPool, self).__init__()
         resnet = resnet50(weights=None)
         resnet.fc = torch.nn.Identity()
-        resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        
+        # resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        resnet.load_state_dict(torch.load("/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_resnet50_pretrain.pth"))
 
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(resnet.children())[:-2]
@@ -122,7 +125,8 @@ class DinoResEncoder_Pool(nn.Module):
         super(DinoResEncoder_Pool, self).__init__()
         resnet = resnet50(weights=None)
         resnet.fc = torch.nn.Identity()
-        resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        # resnet.load_state_dict(torch.load("../../saved_model/dino_resnet50_pretrain.pth"))
+        resnet.load_state_dict(torch.load("/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_resnet50_pretrain.pth"))
 
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(resnet.children())[:-2]
@@ -174,36 +178,61 @@ class ViTEncoder(nn.Module):
         super(ViTEncoder, self).__init__()
         if patch_size == 8:
             self.image_encoder = VisionTransformer(patch_size=8, qkv_bias=True)
-            # state_dict = torch.hub.load_state_dict_from_url(
-            #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
-            #     map_location="cpu",
-            # )
-            # self.image_encoder.load_state_dict(state_dict)
-            saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase8_pretrain.pth"
-            self.image_encoder.load_state_dict(torch.load(saved_ckpt))
+            state_dict = torch.hub.load_state_dict_from_url(
+                url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
+                map_location="cpu",
+            )
+            self.image_encoder.load_state_dict(state_dict)
+            # saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase8_pretrain.pth"
+            # self.image_encoder.load_state_dict(torch.load(saved_ckpt))
             
         elif patch_size == 16:
             self.image_encoder = VisionTransformer(patch_size=16, qkv_bias=True)
-            # state_dict = torch.hub.load_state_dict_from_url(
-            #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
-            #     map_location="cpu",
-            # )
-            # self.image_encoder.load_state_dict(state_dict)
-            saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase16_pretrain.pth"
-            self.image_encoder.load_state_dict(torch.load(saved_ckpt))
+            state_dict = torch.hub.load_state_dict_from_url(
+                url="https://dl.fbaipublicfiles.com/dino/dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth",
+                map_location="cpu",
+            )
+            self.image_encoder.load_state_dict(state_dict)
+            # saved_ckpt = "/net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/dino_vitbase16_pretrain.pth"
+            # self.image_encoder.load_state_dict(torch.load(saved_ckpt))
         else:
             raise ValueError(f"Only patch_size == 8 or 16 is supported by ViT, while {patch_size} is not.")
         self.image_encoder.eval()
-        # self.to_embedding = nn.Linear(768, embed_dim)
-        # self.init_weights()
+        self.freeze()
     
     def forward(self, images):
-        out = self.image_encoder(images)  # (batch_size, 1 + 14*14, 768)
-        # out = self.to_embedding(out) # (batch_size, 1 + 14*14, embedding_dim)
-        # return out[:,1:], out[:,0]
+        """
+            The output is img, gx
+            Where img is shaped as [batch, 1, 768]
+            and gx is shaped as [batch, 784 or 196, 768]
+        """
+        out = self.image_encoder(images) 
         return out[:,0].unsqueeze(dim=1), out[:,1:]
-        # return out
+    
+    def freeze(self):
+        """
+        Allow or prevent the computation of gradients for convolutional blocks 2 through 4 of the encoder.
 
+        :param fine_tune: Allow?
+        """
+        for p in self.image_encoder.parameters():
+            p.requires_grad = False
+
+class ViTEncoder_all(ViTEncoder):
+    def __init__(self, patch_size=8, qkv_bias=True):
+        super().__init__(patch_size, qkv_bias)
+    
+    
+    def forward(self, images):
+        """
+            We re-write the class for outputing all ViT features
+            instead of only the first token.
+            The output is imgs, gx, where
+            Where img is shaped as [batch, 785 or 197, 768]
+            and gx is shaped as [batch, 768]
+        """
+        out = self.image_encoder(images)  # (batch_size, 1 + 14*14, 768)
+        return out, out[:,0]
 
 class STEncoder(nn.Module):
     '''

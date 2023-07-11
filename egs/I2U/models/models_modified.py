@@ -48,67 +48,67 @@ import yaml
 # MAX_LEN = int(config['data']['max_len']) + 2
 # refine_encoder_params = config["i2u"]["refine_encoder_params"]
 
-class TransformerConditionedLM_FixedImg(TransformerConditionedLM):
-    def __init__(
-        self,
-        vocab_size: int,
-        d_model: int = 1024,
-        nhead: int = 8,
-        num_layers: int = 6,
-        activation="gelu",
-        layer_norm_eps: float = 1e-5,
-        batch_first: bool = True,
-        norm_first: bool = True,
-        dropout: float = 0.1,
-        image_backbone: str = "ResNet",
-        fine_tune_image_encoder: bool = False,
-        use_refine_encoder: bool = False,
-        use_global_feature: bool = False,
-        AR: bool = True,
-        refine_encoder_params: dict = None,
-        ):
-        super().__init__(
-            vocab_size,
-            d_model,
-            nhead,
-            num_layers,
-            activation,
-            layer_norm_eps,
-            batch_first,
-            norm_first,
-            dropout,
-            image_backbone,
-            fine_tune_image_encoder,
-            use_refine_encoder,
-            use_global_feature,
-            AR,
-            refine_encoder_params,
-        )
-        if image_backbone.upper() == "RESNET":
-            self.image_encoder = DinoResEncoder_NoPool()
-            self.image_encoder.fine_tune(fine_tune_image_encoder)
-        else:
-            raise NotImplementedError
-        self.image_encoder_embedding = nn.Linear(2048, d_model)
+# class TransformerConditionedLM_FixedImg(TransformerConditionedLM):
+#     def __init__(
+#         self,
+#         vocab_size: int,
+#         d_model: int = 1024,
+#         nhead: int = 8,
+#         num_layers: int = 6,
+#         activation="gelu",
+#         layer_norm_eps: float = 1e-5,
+#         batch_first: bool = True,
+#         norm_first: bool = True,
+#         dropout: float = 0.1,
+#         image_backbone: str = "ResNet",
+#         fine_tune_image_encoder: bool = False,
+#         use_refine_encoder: bool = False,
+#         use_global_feature: bool = False,
+#         AR: bool = True,
+#         refine_encoder_params: dict = None,
+#         ):
+#         super().__init__(
+#             vocab_size,
+#             d_model,
+#             nhead,
+#             num_layers,
+#             activation,
+#             layer_norm_eps,
+#             batch_first,
+#             norm_first,
+#             dropout,
+#             image_backbone,
+#             fine_tune_image_encoder,
+#             use_refine_encoder,
+#             use_global_feature,
+#             AR,
+#             refine_encoder_params,
+#         )
+#         if image_backbone.upper() == "RESNET":
+#             self.image_encoder = DinoResEncoder_NoPool()
+#             self.image_encoder.fine_tune(fine_tune_image_encoder)
+#         else:
+#             raise NotImplementedError
+#         self.image_encoder_embedding = nn.Linear(2048, d_model)
     
-    def get_image_features(self, imgs):
-        imgs, gx = self.image_encoder(imgs)       # (Batch, 7*7, 2048)
-        imgs = self.image_encoder_embedding(imgs) # (Batch, 7*7, d_model)
-        gx = imgs.mean(1)
-        if self.use_refine_encoder:
-            gx, imgs = self.refine_encoder(imgs)
-        return imgs, gx
-        # The image encoder is only DinoResNet.
-        # The out put is (Batch, (input_resolution/32)^2, 2048)
+#     def get_image_features(self, imgs):
+#         imgs, gx = self.image_encoder(imgs)       # (Batch, 7*7, 2048)
+#         imgs = self.image_encoder_embedding(imgs) # (Batch, 7*7, d_model)
+#         gx = imgs.mean(1)
+#         if self.use_refine_encoder:
+#             gx, imgs = self.refine_encoder(imgs)
+#         return imgs, gx
+#         # The image encoder is only DinoResNet.
+#         # The out put is (Batch, (input_resolution/32)^2, 2048)
     
-    def action_to_image(self, action):
-        assert action.size(-1) >= 49*2048, "Action size too small"
-        imgs = action[:, :49*2048].view(1, 49, 2048) # (1, 7*7, 2048)
-        imgs = self.image_encoder_embedding(imgs)    # (1, 7*7, d_model)
-        gx = imgs.mean(1)
-        if self.use_refine_encoder:
-            gx, imgs = self.refine_encoder(imgs)
-        return imgs, gx
+#     def action_to_image(self, action):
+#         assert action.size(-1) >= 49*2048, "Action size too small"
+#         imgs = action[:, :49*2048].view(1, 49, 2048) # (1, 7*7, 2048)
+#         imgs = self.image_encoder_embedding(imgs)    # (1, 7*7, d_model)
+#         gx = imgs.mean(1)
+#         if self.use_refine_encoder:
+#             gx, imgs = self.refine_encoder(imgs)
+#         return imgs, gx
 
 
 class TransformerSentenceLM_FixedImg_Pool(TransformerSentenceLM):

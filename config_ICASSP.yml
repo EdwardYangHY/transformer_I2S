@@ -1,0 +1,34 @@
+I2U:
+  # data_folder: origin_4_captions_256_hubert_sentence
+  # data_folder: origin_3_captions_256_hubert_sentence
+  # data_folder: SpokenCOCO_5_captions_hubert_256
+  # data_folder: komatsu_4_captions_256_hubert
+  # data_folder: komatsu_4_captions_224_hubert
+  # data_folder: komatsu_4_captions_224_hubert_10_percent
+  # data_folder: komatsu_4_captions_224_hubert_20_percent
+  # data_folder: komatsu_4_captions_256_hubert_10_percent
+  # data_folder: komatsu_4_captions_256_hubert_20_percent
+  # data_folder: komatsu_4_captions_224_ResDAVEnet
+  # data_folder: komatsu_4_captions_224_ResDAVEnet_10_percent
+  # data_folder: komatsu_4_captions_224_ResDAVEnet_20_percent
+
+  # data_folder: SpokenCOCO_5_captions_hubert_224
+  data_folder: record_3_captions_224_hubert_there_sentence_10_speakers
+  # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_5_percent
+  # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_10_percent
+  # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_20_percent
+  
+  pretrained_model: "/net/papilio/storage6/phusaeng/fun/spolacq/spolacq/models/I2U/_23-06-23_01-42-55_pikaia31_word_map_spokencoco_SpokenCOCO_pretrained_hubert_i2u_with_sentence_embedding.pt"
+  
+  # word_map: "data/I2U/processed/WORDMAP_food_4_cap_per_img_1_min_word_freq.json"
+  # data_name: "food_4_cap_per_img_1_min_word_freq"
+  captions_per_image: 3 # 4
+  min_word_freq: 1
+  max_len: 202
+  d_embed: 8
+  batch_size: 64 #96
+  num_workers: 10
+  lr: 0.0001
+  epoch: 100
+  beam_size: 50
+  # model_path: "models/I2U/i2u_with_sentence_embedding.pt"

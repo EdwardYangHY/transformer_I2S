@@ -38,6 +38,8 @@ from models import TransformerConditionedLM
 from models_modified import TransformerSentenceLM_FixedImg_Pool, TransformerSentenceLM_FixedImg_gated
 from models_prompt import TransformerPrefixLM, prefix_Transformer
 from incremental_decoder import incremental_prefix_Transformer, TransformerSentenceLM_FixedImg_Pool_incremental
+from models_ICASSP import ImageToUnit
+from models_k import ImageToUnit as ImageToUnit_haoyuan
 
 def load_tacotron2(model_path, max_decoder_step = None, sr = None, vocab_size = None):
     hparams = create_hparams()
@@ -118,63 +120,63 @@ def load_i2u(checkpoint_path, **model_params):
             please us \"load_i2u_codec/prefix\" instead. ")
     return
 
-def load_i2u_all(model_path):
-    dir_name = model_path.split("/")[-2]
-    if os.path.exists(f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'):
-        data_folder = f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
-    elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
-        data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
-    else:
-        raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
+# def load_i2u_all_(model_path):
+#     dir_name = model_path.split("/")[-2]
+#     if os.path.exists(f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'):
+#         data_folder = f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+#     elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
+#         data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
+#     else:
+#         raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
 
-    word_map_path = glob(data_folder+"*WORDMAP*.json")[0]
+#     word_map_path = glob(data_folder+"*WORDMAP*.json")[0]
 
-    config_path = glob(model_path + "/config*.yml")[0]
-    model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
-    if not os.path.isfile(config_path):
-        raise ValueError(f"{config_path} invalid. Please check the model path.")
-    if not os.path.isfile(model_checkpoint):
-        raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
+#     config_path = glob(model_path + "/config*.yml")[0]
+#     model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+#     if not os.path.isfile(config_path):
+#         raise ValueError(f"{config_path} invalid. Please check the model path.")
+#     if not os.path.isfile(model_checkpoint):
+#         raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
 
-    # Load word map (word2ix)
-    # global word_map, rev_word_map, special_words, i2u_model
-    with open(word_map_path) as j:
-        word_map = json.load(j)
-    rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
-    special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+#     # Load word map (word2ix)
+#     # global word_map, rev_word_map, special_words, i2u_model
+#     with open(word_map_path) as j:
+#         word_map = json.load(j)
+#     rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+#     special_words = {"<unk>", "<start>", "<end>", "<pad>"}
 
-    config_path = glob(model_path + "/config*.yml")[0]
-    model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
-    if not os.path.isfile(config_path):
-        raise ValueError(f"{config_path} invalid. Please check the model path.")
-    if not os.path.isfile(model_checkpoint):
-        raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
+#     config_path = glob(model_path + "/config*.yml")[0]
+#     model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+#     if not os.path.isfile(config_path):
+#         raise ValueError(f"{config_path} invalid. Please check the model path.")
+#     if not os.path.isfile(model_checkpoint):
+#         raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
 
-    # Load word map (word2ix)
-    # global word_map, rev_word_map, special_words #, i2u_model
-    with open(word_map_path) as j:
-        word_map = json.load(j)
-    rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
-    special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+#     # Load word map (word2ix)
+#     # global word_map, rev_word_map, special_words #, i2u_model
+#     with open(word_map_path) as j:
+#         word_map = json.load(j)
+#     rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+#     special_words = {"<unk>", "<start>", "<end>", "<pad>"}
 
-    with open(config_path, 'r') as yml:
-        model_config = yaml.safe_load(yml)
+#     with open(config_path, 'r') as yml:
+#         model_config = yaml.safe_load(yml)
 
-    dir_name = model_config["i2u"]["dir_name"]
+#     dir_name = model_config["i2u"]["dir_name"]
 
-    model_params = model_config["i2u"]["model_params"]
-    model_params['vocab_size'] = len(word_map)
-    model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
+#     model_params = model_config["i2u"]["model_params"]
+#     model_params['vocab_size'] = len(word_map)
+#     model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
 
-    d_embed = 0
-    if model_params["use_sentence_encoder"]:
-        d_embed = model_params["sentence_embed"]
+#     d_embed = 0
+#     if model_params["use_sentence_encoder"]:
+#         d_embed = model_params["sentence_embed"]
 
-    # i2u_model = load_i2u_codec(model_checkpoint, **model_params)
-    i2u_model = load_i2u(model_checkpoint, **model_params)
-    i2u_model.eval()
-    # i2u_model.to(device)
-    return i2u_model, word_map, rev_word_map, special_words
+#     # i2u_model = load_i2u_codec(model_checkpoint, **model_params)
+#     i2u_model = load_i2u(model_checkpoint, **model_params)
+#     i2u_model.eval()
+#     # i2u_model.to(device)
+#     return i2u_model, word_map, rev_word_map, special_words
 
 # def load_i2u(checkpoint_path, model_config_path, vocab_size):
 #     with open(model_config_path, "r") as yml:
@@ -186,6 +188,105 @@ def load_i2u_all(model_path):
 #     model = TransformerSentenceLM_FixedImg_Pool(**model_params)
 #     model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 #     return model
+
+def load_i2u_all(model_path, word_map_path=None, haoyuan_model=True, show_config=False):
+    if haoyuan_model:
+        dir_name = model_path.split("/")[-2]
+        if os.path.exists(f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'):
+            data_folder = f'/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
+        elif os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'):
+            data_folder = f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}/'
+        else:
+            raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
+        word_map_path = glob(data_folder+"*WORDMAP*.json")[0]
+
+        config_path = glob(model_path + "/config*.yml")[0]
+        model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+        if not os.path.isfile(config_path):
+            raise ValueError(f"{config_path} invalid. Please check the model path.")
+        if not os.path.isfile(model_checkpoint):
+            raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
+
+        # Load word map (word2ix)
+        # global word_map, rev_word_map, special_words, i2u_model
+        with open(word_map_path) as j:
+            word_map = json.load(j)
+        rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+        special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+
+        config_path = glob(model_path + "/config*.yml")[0]
+        model_checkpoint = glob(model_path+"/*BEST*.tar")[0]
+        if not os.path.isfile(config_path):
+            raise ValueError(f"{config_path} invalid. Please check the model path.")
+        if not os.path.isfile(model_checkpoint):
+            raise ValueError(f"{model_checkpoint} invalid. Please check the model path.")
+
+        # Load word map (word2ix)
+        # global word_map, rev_word_map, special_words #, i2u_model
+        with open(word_map_path) as j:
+            word_map = json.load(j)
+        rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+        special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+
+        with open(config_path, 'r') as yml:
+            model_config = yaml.safe_load(yml)
+
+        # dir_name = model_config["i2u"]["dir_name"]
+
+        model_params = model_config["i2u"]["model_params"]
+        model_params['vocab_size'] = len(word_map)
+        model_params['refine_encoder_params'] = model_config["i2u"]["refine_encoder_params"]
+
+        d_embed = 0
+        if model_params["use_sentence_encoder"]:
+            d_embed = model_params["sentence_embed"]
+
+        # i2u_model = load_i2u_codec(model_checkpoint, **model_params)
+        i2u_model = load_i2u(model_checkpoint, **model_params)
+        i2u_model.eval()
+        # i2u_model.to(device)
+    else:
+        assert word_map_path is not None, "For Komatsu Model, we need a word_map file"
+        with open(word_map_path) as j:
+            word_map = json.load(j)
+        rev_word_map = {v: k for k, v in word_map.items()}  # ix2word
+        special_words = {"<unk>", "<start>", "<end>", "<pad>"}
+        # Komatsu model.
+        dir_path = os.path.abspath(model_path + os.path.sep + "..")
+        try:
+            config_path = glob(dir_path + "/config*.yml")[0]
+        except:
+            config_path = None
+
+        model_config = None
+        try:
+            if config_path is not None:
+                with open(config_path, 'r') as yml:
+                    model_config = yaml.safe_load(yml)
+                i2u_model = ImageToUnit(word_map, max_len = model_config["I2U"]["max_len"])
+            else:
+                i2u_model = ImageToUnit(word_map)
+            # config["I2U"]["max_len"]
+            # i2u_model = ImageToUnit(word_map)
+            i2u_model.load_state_dict(torch.load(model_path))
+        except:
+            if config_path is not None:
+                with open(config_path, 'r') as yml:
+                    model_config = yaml.safe_load(yml)
+                i2u_model = ImageToUnit_haoyuan(word_map, max_len = model_config["I2U"]["max_len"])
+            else:
+                i2u_model = Image2Unit_haoyuan(word_map)
+            # config["I2U"]["max_len"]
+            # i2u_model = ImageToUnit(word_map)
+            i2u_model.load_state_dict(torch.load(model_path))
+        i2u_model.eval()
+        print("A ImageToUnit model is loaded")
+
+    if show_config and model_config is not None:
+        return i2u_model, word_map, rev_word_map, special_words, model_config
+    else:
+        return i2u_model, word_map, rev_word_map, special_words
+
 
 def load_u2s(device):
     with open('../../config.yml') as yml:

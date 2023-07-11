@@ -14,9 +14,8 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
-import yaml
-
 from datasets import CaptionDataset_transformer
+import yaml
 from utils_synthesize import load_tacotron2, load_tacotron2_hubert, load_hifigan, load_asr
 from utils_synthesize import load_i2u, load_i2u_all, seq2words, u2s, u2s_hubert, s2t
 
@@ -53,14 +52,8 @@ def test(model, config):
     ans = []
     i = 0
 
-    try:
-        dir_name = config["i2u"]["dir_name"]
-    except:
-        dir_name = config["I2U"]["data_folder"]
-        config["i2u"] = {}
-        config["i2u"]["captions_per_image"]=4
-        config["i2u"]["min_word_freq"]=1
-    # dir_name = "komatsu_4_captions_256_hubert"
+    # dir_name = config["i2u"]["dir_name"]
+    dir_name = "komatsu_4_captions_224_hubert"
 
     # Data parameters
     # data_folder = f'../../data/processed/{dir_name}/'  # folder with data files saved by create_input_files.py
@@ -72,7 +65,7 @@ def test(model, config):
         raise ValueError(f"Dir: {dir_name} doesn't exist. Please check.")
 
 
-    data_name = f'coco_{str(config["i2u"]["captions_per_image"])}_cap_per_img_{str(config["i2u"]["min_word_freq"])}_min_word_freq'  # base name shared by data files
+    data_name = f'coco_4_cap_per_img_1_min_word_freq'  # base name shared by data files
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                         std=[0.229, 0.224, 0.225])    
     transform = transforms.Compose([normalize])
@@ -104,12 +97,8 @@ def test(model, config):
             # eps = torch.randn_like(log_std)  # (batch, sentence_embed)
             # mu = mu + eps*log_std.exp()  # (batch, sentence_embed)
 
-            imgs, gx = model.image_encoder(imgs)
+            imgs = model.image_encoder(imgs)[:, 0].unsqueeze(1)
             flatten_imgs = imgs.reshape(-1, imgs.size(1)*imgs.size(2))
-            # if flatten_imgs.dim() == 2:
-            #     flatten_imgs = flatten_imgs.unsqueeze(0)
-            # if mu.dim() == 2:
-            #     mu = mu.unsqueeze(0)
             action = torch.cat([flatten_imgs, mu], dim=1)
 
             # -------------------------------------------------------------------------------------------
@@ -188,30 +177,21 @@ def test(model, config):
 def main(model_path):
     # is_debug = False
     if is_debug:
-        # if socket.gethostname() == "pikaia25":
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Prefix_baseline_BLEU_12.5"
-        # elif socket.gethostname() == "pikaia28":
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12"
-        # else:
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
-        # model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
         pass
-        # model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Prefix_baseline_BLEU_12.5"
+    
+    dir_path = model_path
+    model_path = glob(dir_path + "/*.pt")[0]
 
     global word_map, rev_word_map, special_words, i2u_model
-    if os.path.isdir(model_path):
-        i2u_model, word_map, rev_word_map, special_words, model_config = load_i2u_all(model_path, \
-            haoyuan_model=True, show_config=True)
-    elif os.path.isfile(model_path):
-        i2u_model, word_map, rev_word_map, special_words, model_config = load_i2u_all(model_path, \
-            word_map_path="../../data/processed/WORDMAP_HUBERT.json", haoyuan_model=False, \
-            show_config=True)
-    else:
-        raise ValueError("model_path should be a file or a directory")
-
+    word_map_path = "/net/papilio/storage2/yhaoyuan/transformer_I2S/data/processed/WORDMAP_HUBERT.json"
+    
+    # i2u_model, word_map, rev_word_map, special_words, model_config = load_i2u_all(model_path, \
+    #     word_map_path = word_map_path, haoyuan_model=False, show_config=True)
+    i2u_model, word_map, rev_word_map, special_words = load_i2u_all(model_path, \
+        word_map_path = word_map_path, haoyuan_model=False, show_config=False)
     i2u_model.to(device)
     
-    I_want_acc, gt_list, ans_list = test(i2u_model, model_config)
+    I_want_acc, gt_list, ans_list = test(i2u_model, config = None)
 
     # with open(model_path + f"/val_recognition_results_sentence_no_incremental.txt", "w") as f:
     #         f.write("%-20s\t\t%-20s\n"%("I want Accuracy", f"{I_want_acc}"))
@@ -219,32 +199,17 @@ def main(model_path):
     #         for i in range(len(ans_list)):
     #             # f.write(f"{names[i]} \t {ans_list[i]} \t {count_list[i]} \n ")
     #             f.write("%-20s\t\t%-20s\n"%(f"{gt_list[i]}", f"{ans_list[i]}"))
-    try:
-        with open(model_path + f"/val_recognition_results_sentence_no_incremental.txt", "w") as f:
-                f.write("%-20s\t\t%-20s\n"%("Embedding Accuracy", f"{I_want_acc}"))
-                f.write("%-20s\t\t%-20s\n"%("Ground Truth", "Answer")+ "-"*100+"\n")
-                for i in range(len(ans_list)):
-                    # f.write(f"{names[i]} \t {ans_list[i]} \t {count_list[i]} \n ")
-                    f.write("%-20s\t\t%-20s\n"%(f"{gt_list[i]}", f"{ans_list[i]}"))
-    except:
-        with open(os.path.abspath(model_path+os.path.sep+"..") + f"/val_recognition_results_sentence_no_incremental.txt", "w") as f:
-                f.write("%-20s\t\t%-20s\n"%("Embedding Accuracy", f"{I_want_acc}"))
-                f.write("%-20s\t\t%-20s\n"%("Ground Truth", "Answer")+ "-"*100+"\n")
-                for i in range(len(ans_list)):
-                    # f.write(f"{names[i]} \t {ans_list[i]} \t {count_list[i]} \n ")
-                    f.write("%-20s\t\t%-20s\n"%(f"{gt_list[i]}", f"{ans_list[i]}"))
+    
+    with open(dir_path + f"/val_recognition_results_sentence_no_incremental.txt", "w") as f:
+            f.write("%-20s\t\t%-20s\n"%("Embedding Accuracy", f"{I_want_acc}"))
+            f.write("%-20s\t\t%-20s\n"%("Ground Truth", "Answer")+ "-"*100+"\n")
+            for i in range(len(ans_list)):
+                # f.write(f"{names[i]} \t {ans_list[i]} \t {count_list[i]} \n ")
+                f.write("%-20s\t\t%-20s\n"%(f"{gt_list[i]}", f"{ans_list[i]}"))
 
 if __name__ == "__main__":
     model_paths = [
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ViT_all_0.11_BLEU",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_CNN",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ViT_6_layer_uLM",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert_5_percent/ICASSP_arch_uLM_6_layers_100_epochs",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ViT_6_layer_uLM_6*8_SE_first_lr_10-3",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ViT_6_layer_uLM_6*8_SE_first", 
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ViT_6_layer_uLM_6*8_SE_pool",
-        # "../../saved_model/I2U/komatsu_4_captions_224_hubert/Prefix_ResNet_6_layer_uLM",
-        "../../saved_model/I2U/komatsu_4_captions_224_hubert/23-07-08_15:27:33_ICASSP_pikaia19/i2u_with_sentence_embedding.pt"
+        "../../saved_model/I2U/komatsu_4_captions_224_hubert/ICASSP_model",
         ]
     for model_path in model_paths:
         main(model_path)

@@ -55,6 +55,14 @@ i2u:
     freeze_uLM: False
     freeze_uLM_hard: False
     
+    # ### SpokenCOCO + Libri-light small, ResDAVEnet-VQ, vocab: 1017
+    # LM_checkpoint: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/SpokenCOCO_LibriSpeech/PP_15.6512/checkpoint_coco_1_cap_per_img_1_min_word_freq.pth.tar
+    ### Libri-light Medium, 12 layers, HuBERT, vocab: 102
+    LM_checkpoint: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/LM/Libri_Light_small_hubert_256/perplexity_6/perplexity_BEST_checkpoint_coco_1_cap_per_img_1_min_word_freq_gpu.pth.tar
+    # ### Libri-light Medium, 6 layers, HuBERT, vocab: 102
+    # LM_checkpoint: #
+
+
   model_params:
     d_model: 1024 # 2048
     nhead: 16 # 32

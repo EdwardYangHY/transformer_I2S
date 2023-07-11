@@ -16,29 +16,6 @@ import math
 from torch.optim.lr_scheduler import LambdaLR
 import sys
 
-# sys.path.append("../..")
-# import hifigan
-# from hifigan.env import AttrDict
-# from hifigan.models import Generator
-
-# sys.path.append("../U2S")
-# # import U2S
-# from hparams import create_hparams
-# from train import load_model
-# from text import text_to_sequence
-
-# sys.path.append('../')
-# from gslm.unit2speech.tts_data import (
-#     TacotronInputDataset,
-# )
-# from gslm.unit2speech.utils import (
-#     load_quantized_audio_from_file,
-#     load_tacotron,
-#     load_waveglow,
-#     synthesize_audio,
-# )
-# from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-
 config_path='../../config.yml'
 with open(config_path, 'r') as yml:
     config = yaml.safe_load(yml)

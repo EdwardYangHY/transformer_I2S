@@ -25,7 +25,7 @@ import json
 
 def main():
     # Check dir_name exists or not, empty or not
-    dir_name = "SpokenCOCO_5_captions_hubert_256"
+    dir_name = "SpokenCOCO_5_captions_hubert_224"
 
     if os.path.exists(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}'):
         assert not os.listdir(f'/net/papilio/storage6/yhaoyuan/SpeechCap/data/processed/{dir_name}'), "Exist dir, not empty. Choose a new name."

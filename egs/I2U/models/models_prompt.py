@@ -31,7 +31,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from models import PositionalEncoding, TransformerLM, TransformerConditionedLM, TransformerSentenceLM
-from image_encoder import DinoResEncoder, ViTEncoder, DinoResEncoder_NoPool, DinoResEncoder_Pool
+from image_encoder import DinoResEncoder, ViTEncoder, ViTEncoder_all, DinoResEncoder_NoPool, DinoResEncoder_Pool
 from PureT_encoder import Encoder as refine_encoder
 from typing import Optional, Any, Union, Callable
 from torch import Tensor
@@ -65,6 +65,9 @@ class TransformerPrefixLM(TransformerSentenceLM):
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
         AR: bool = True,
+        sentence_encoder_num_layers: int = 0,
+        sentence_encoder_num_heads: int = 0,
+        global_mean_pooling: bool = False,
         refine_encoder_params: dict = None
         ):
         super().__init__(
@@ -101,13 +104,18 @@ class TransformerPrefixLM(TransformerSentenceLM):
         self.LM_decoder = nn.TransformerEncoder(decoder_layer, num_layers, decoder_norm)
         if image_backbone.upper() == "RESNET":
             self.image_encoder = DinoResEncoder_Pool(encoded_image_size=refine_encoder_params["input_resolution"])
+            # assert fine_tune_image_encoder==False, "Refer to foward function. with torch.no_grad() is used."
             self.image_encoder.fine_tune(fine_tune_image_encoder)
             self.image_encoder_embedding = nn.Linear(2048, d_model)
             self.prefix_length = refine_encoder_params["input_resolution"]**2
         elif image_backbone.upper() == "VIT":
-            self.image_encoder = ViTEncoder()
+            self.image_encoder = ViTEncoder(patch_size=8)
             self.image_encoder_embedding = nn.Linear(768, d_model)
             self.prefix_length = 1
+        elif image_backbone.upper() == "VIT_ALL":
+            self.image_encoder = ViTEncoder_all(patch_size=16)
+            self.image_encoder_embedding = nn.Linear(768, d_model)
+            self.prefix_length = 197
         else:
             raise NotImplementedError
         
@@ -118,7 +126,21 @@ class TransformerPrefixLM(TransformerSentenceLM):
             self.prefix_length += 1
             # self.prefix_length += 6
         
-
+        """ This is to overwrite sentence encoder for new Arch"""
+        if self.use_sentence_encoder and sentence_encoder_num_layers > 0:
+            ### Previous Sentence Encoder uses 6 layers of Transformer Encoder with 32 heads
+            ### New Sentence Encoder uses 6 layers of Transformer Encoder with 8 heads, like ICASSP Model
+            encoder_norm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+            # ### Encoder
+            # encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=32, dim_feedforward=4*d_model,
+            #                                         activation=activation, batch_first=batch_first, norm_first=norm_first)
+            encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=sentence_encoder_num_heads, dim_feedforward=4*d_model,
+                                                    activation=activation, batch_first=batch_first, norm_first=norm_first)
+            self.sentence_encoder = nn.TransformerEncoder(encoder_layer, sentence_encoder_num_layers, encoder_norm)
+            self.mu = nn.Linear(d_model, sentence_embed)
+            self.make_memory = nn.Linear(sentence_embed, d_model)
+        
+        self.global_mean_pooling = global_mean_pooling
         # self.image_encoder_embedding = nn.Linear(2048, d_model)
     
     def load_Pretrained_LM(self, LM_path):
@@ -229,6 +251,45 @@ class TransformerPrefixLM(TransformerSentenceLM):
         
         for p in self.classifier.parameters():
             p.requires_grad = False
+    
+    def get_mu(self, seq, seq_len, seq_padding_mask):
+        x = self.embed(seq)
+        x = self.pos_encoder(x)
+        z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
+        z = z * seq_padding_mask.logical_not().unsqueeze(2)
+        if self.global_mean_pooling:
+            z = z.sum(dim = 1)/ seq_len.unsqueeze(1)
+            mu = self.mu(z)  # (batch, sentence_embed)
+        else:
+            z = z[:,0,:] # (batch, d_model)
+            mu = self.mu(z)  # (batch, sentence_embed
+        return mu
+    
+    def encode_x(self, x, seq_len, seq_padding_mask, verbose):
+        if self.global_mean_pooling:
+            # return to the original version of encoder_x using super
+            return super().encode_x(x, seq_len, seq_padding_mask, verbose)
+        else:
+            ### Customized for prefix-Architecture
+            z = self.sentence_encoder(x, src_key_padding_mask = seq_padding_mask)
+            z = z * seq_padding_mask.logical_not().unsqueeze(2)
+
+            # ### use global pooling
+            # z = z.sum(dim = 1)/ seq_len.unsqueeze(1)
+
+            ### use first token
+            z = z[:,0,:] # (batch, d_model)
+
+            mu = self.mu(z)  # (batch, sentence_embed)
+            if verbose:
+                print("mu", mu, flush=True)
+            # log_std = self.log_std(z)  # (batch, sentence_embed)
+            log_std = torch.full_like(mu, 0.1).log()
+            eps = torch.randn_like(log_std)  # (batch, sentence_embed)
+            z = mu + eps*log_std.exp()  # (batch, sentence_embed)
+            z = self.make_memory(z)  # (batch, d_model)
+            kl_loss = self.kl_loss(mu, log_std)
+            return z, kl_loss
 
     def forward(self, imgs, seq, seq_padding_mask, seq_len):
 
@@ -245,8 +306,10 @@ class TransformerPrefixLM(TransformerSentenceLM):
         x = self.pos_encoder(x)
 
         # function get_image_features, already cat [imgs, fx]
-        with torch.no_grad():
-            imgs, gx = self.get_image_features(imgs)
+        # with torch.no_grad():
+        #     imgs, gx = self.get_image_features(imgs)
+        
+        imgs, gx = self.get_image_features(imgs)
 
         if self.use_sentence_encoder:
             z, kl_loss = self.encode_x(x, seq_len, seq_padding_mask, verbose=False)
@@ -289,39 +352,74 @@ class TransformerPrefixLM(TransformerSentenceLM):
     
     def action_to_image(self, action, beam_size):
         """
-            Why 49*2048?
-            This is decided by the feature extractor of RL.
-            The image resolution in previous task is 224*224.
-            And ResNet-Dino extract feature map by (resolution/32)^2,
-            and we ignored the classification layers to get raw image
-            features.
-            So the features of img originally from ResNet is:
-            [Batch, 224/32, 224/32, 2048]
+            Take input of action = [flatten_img, sentence_embedding]
+            size = [1, flatten_dim]
+            ===================>
+            to decoder_input/prefix
+            size [1 -> beam_size, seq_len, dim]
         """
+
         if "ViT" in self.image_encoder.__class__.__name__:
-            if action.size(-1) > 768:
-                fmap = action[:, :768].view(1, 1, 768)
-                fmap = self.image_encoder_embedding(fmap)
-                gx = fmap.mean(1)
-                if gx.dim() == 2:
-                    gx = gx.unsqueeze(dim = 1)
-                if self.use_refine_encoder:
-                    gx, fmap = self.refine_encoder(fmap)
-                embed = action[:, 768:]
-                embed = self.make_memory(embed)
-                embed = embed.unsqueeze(1)
-                m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-                m = m.expand(beam_size, 2, self.d_model)
+            """
+                Use Vision Transformers trained DINO
+            """
+            if "all" in self.image_encoder.__class__.__name__:
+                """
+                    Use all features size = [1, 197, 768]
+                """
+                if action.size(-1) > 197*768:
+                    fmap = action[:, :197*768].view(1, 197, 768)
+                    fmap = self.image_encoder_embedding(fmap)
+                    gx = fmap.mean(1)
+                    if gx.dim() == 2:
+                        gx = gx.unsqueeze(dim = 1)
+                    if self.use_refine_encoder:
+                        gx, fmap = self.refine_encoder(fmap)
+                    embed = action[:, 197*768:]
+                    embed = self.make_memory(embed)
+                    embed = embed.unsqueeze(1)
+                    m = torch.cat([fmap, embed], dim=1)
+                    m = m.expand(beam_size, 198, self.d_model)
+                else:
+                    fmap = action[:, :197*768].view(1, 197, 768)
+                    fmap = self.image_encoder_embedding(fmap)
+                    gx = fmap.mean(1)
+                    if gx.dim() == 2:
+                        gx = gx.unsqueeze(dim = 1)
+                    if self.use_refine_encoder:
+                        gx, fmap = self.refine_encoder(fmap)
+                    m = fmap.expand(beam_size, 197, 768)
             else:
-                fmap = action[:, :768].view(1, 1, 768)
-                fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
-                gx = fmap.mean(1)
-                if gx.dim() == 2:
-                    gx = gx.unsqueeze(dim = 1)
-                if self.use_refine_encoder:
-                    gx, fmap = self.refine_encoder(fmap)
-                m = fmap.expand(beam_size, 1, 768)
+                """
+                    Use first token features size = [1, 1, 768]
+                """
+                if action.size(-1) > 768:
+                    fmap = action[:, :768].view(1, 1, 768)
+                    fmap = self.image_encoder_embedding(fmap)
+                    gx = fmap.mean(1)
+                    if gx.dim() == 2:
+                        gx = gx.unsqueeze(dim = 1)
+                    if self.use_refine_encoder:
+                        gx, fmap = self.refine_encoder(fmap)
+                    embed = action[:, 768:]
+                    embed = self.make_memory(embed)
+                    embed = embed.unsqueeze(1)
+                    m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
+                    m = m.expand(beam_size, 2, self.d_model)
+                else:
+                    fmap = action[:, :768].view(1, 1, 768)
+                    fmap = self.image_encoder_embedding(fmap) # (1, 49, d_model)
+                    gx = fmap.mean(1)
+                    if gx.dim() == 2:
+                        gx = gx.unsqueeze(dim = 1)
+                    if self.use_refine_encoder:
+                        gx, fmap = self.refine_encoder(fmap)
+                    m = fmap.expand(beam_size, 1, 768)
+
         elif "DinoResEncoder" in self.image_encoder.__class__.__name__:
+            """
+                Use ResNet trained DINO
+            """
             resolution = self.image_encoder.adaptive_pool.output_size[0]
             if action.size(-1) > resolution**2*2048:
                 fmap = action[:, :resolution**2*2048].view(1, resolution**2, 2048) # (1, 49, 2048)
@@ -735,35 +833,6 @@ class prefix_TransformerEncoder(nn.TransformerEncoder):
                     src_mask=mask, 
                     src_key_padding_mask=src_key_padding_mask
                     )
-            
-        # for mod, key_embedder, value_embedder in zip(self.layers, self.key_embedders, self.value_embedders):
-        #     """
-        #         Here we assert BatchFirst is True
-        #         Embedder is a conv1d layer, we should permute [B, T, dim] -> [B, dim, T]
-        #     """ 
-
-        #     """
-        #         计算大量冗余：
-        #         Prefix是不会变的 所以不需要每次都计算
-        #     """
-        #     key_prompt = output.clone()
-        #     key_prefix_prompt = key_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
-        #     key_prefix_prompt = self.prompt_dropout(self.prompt_activation(key_prefix_prompt))
-        #     key_prompt[:,:self.prefix_length,:] = key_prefix_prompt
-            
-        #     value_prompt = output.clone()
-        #     value_prefix_prompt = value_embedder(input_prefix.permute(0,2,1)).permute(0,2,1)
-        #     value_prefix_prompt = self.prompt_dropout(self.prompt_activation(value_prefix_prompt))
-        #     value_prompt[:,:self.prefix_length,:] = value_prefix_prompt
-            
-
-        #     output = mod(
-        #         output, 
-        #         key_prompt=key_prompt,
-        #         value_prompt=value_prompt,
-        #         src_mask=mask, 
-        #         src_key_padding_mask=src_key_padding_mask
-        #         )
 
         if self.norm is not None:
             output = self.norm(output)
@@ -808,6 +877,9 @@ class prefix_Transformer(TransformerPrefixLM):
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
         AR: bool = True,
+        sentence_encoder_num_layers: int = 0,
+        sentence_encoder_num_heads: int = 0,
+        global_mean_pooling: bool = False,
         refine_encoder_params: dict = None
         ):
         super().__init__(
@@ -827,6 +899,9 @@ class prefix_Transformer(TransformerPrefixLM):
             use_refine_encoder,
             use_global_feature,
             AR,
+            sentence_encoder_num_layers,
+            sentence_encoder_num_heads,
+            global_mean_pooling,
             refine_encoder_params
         )
         # if use_global_feature:
@@ -845,27 +920,3 @@ class prefix_Transformer(TransformerPrefixLM):
     
     def load_Pretrained_LM(self, LM_path):
         return super().load_Pretrained_LM(LM_path)
-
-    # def action_to_image(self, action, beam_size):
-    #     if action.size(-1) > 64*2048:
-    #         fmap = action[:, :64*2048].view(1, 64, 2048)
-    #         gx = fmap.mean(1)
-    #         if self.use_refine_encoder:
-    #             gx, fmap = self.refine_encoder(fmap)
-    #         embed = action[:, 64*2048:]
-    #         embed = self.make_memory(embed)
-    #         embed = embed.unsqueeze(1)
-    #         if self.use_global_feature:
-    #             m = torch.cat([fmap, gx, embed], dim=1)  # (1, 50, d_model)
-    #         else:
-    #             m = torch.cat([fmap, embed], dim=1)  # (1, 50, d_model)
-    #         m = m.expand(beam_size, m.size(1), 2048)
-    #     else:
-    #         fmap = action[:, :64*2048].view(1, 64, 2048)
-    #         gx = fmap.mean(1)
-    #         if self.use_refine_encoder:
-    #             gx, fmap = self.refine_encoder(fmap)
-    #         if self.use_global_feature:
-    #             m = torch.cat([fmap, gx], dim=1)  # (1, 50, d_model)
-    #         m = fmap.expand(beam_size, m.size(1), 2048)
-    #     return m, gx

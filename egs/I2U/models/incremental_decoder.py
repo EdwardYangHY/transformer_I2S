@@ -325,6 +325,9 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
         use_refine_encoder: bool = False,
         use_global_feature: bool = False,
         AR: bool = True,
+        sentence_encoder_num_layers: int = 0,
+        sentence_encoder_num_heads: int = 0,
+        global_mean_pooling: bool = False,
         refine_encoder_params: dict = None
         ):
         super().__init__(
@@ -344,6 +347,9 @@ class incremental_prefix_Transformer(TransformerPrefixLM):
             use_refine_encoder,
             use_global_feature,
             AR,
+            sentence_encoder_num_layers,
+            sentence_encoder_num_heads,
+            global_mean_pooling,
             refine_encoder_params
         )
         # if use_global_feature:

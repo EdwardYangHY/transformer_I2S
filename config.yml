@@ -2,17 +2,14 @@ data:
   # store with absolute path
   # not implemented yet
   # Real Voice leaveout number
-  # train_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/train_trimmed_mapping.json'
-  # valid_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/valid_trimmed_mapping.json'
-  # test_json: '/net/papilio/storage2/yhaoyuan/LAbyLM/new_dataset/test_trimmed_mapping.json'
-  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_sentence_embedding_3.json
-  # wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json
-  
-  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_Komatsu.json
-  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_Komatsu_30_percent.json
-  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu_hubert/audios_komatsu_hbcaps.json
+
+  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/food_dataset_Komatsu_30_percent.json
+  # wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu_hubert/audios_komatsu_hbcaps.json
+  # dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/record_food_3_caps_there_10_speakers.json
+  dataset_json: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/record_food_3_caps_there_10_speakers_30_percent.json
+  wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_original/audios_trimmed_selet_hbcaps.json
   # wav_captions: /net/papilio/storage2/yhaoyuan/transformer_I2S/data/captions_komatsu_ResDAVEnet/audios_komatsu_ResDAVEcaps.json
-  max_len: 100
+  max_len: 150 #100
   image_resolution: 224
 
 u2s:
@@ -47,7 +44,7 @@ i2u:
   wordmap: ../../data/processed/Komatsu_4_captions_all_224/WORDMAP_coco_4_cap_per_img_1_min_word_freq.json
   
   #### Used when training models
-  captions_per_image: 4 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
+  captions_per_image: 3 #取决于 每一张图片对应多少个caption！比如 “Apple” "An apple in a white background" "It's an apple in a white background." 那就是3个caption
   #captions_per_image: 1 # change it after LJS U2U
   min_word_freq: 1
   # dir_name: "trimmed_mapping_SpeakerALL" #"trimmed_mapping_SpeakerFixed"
@@ -56,7 +53,7 @@ i2u:
   # dir_name: VC_5_captions_320
   # dir_name: origin_3_captions_256_hubert_sentence
   # dir_name: komatsu_4_captions_224_ResDAVEnet_30_percent
-  dir_name: komatsu_4_captions_224_hubert_30_percent
+  dir_name: record_3_captions_224_hubert_there_sentence_30_speakers_5_percent
 
   #### Model params
   # batch_size: 32

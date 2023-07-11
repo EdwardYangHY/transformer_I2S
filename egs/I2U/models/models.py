@@ -351,6 +351,10 @@ class TransformerConditionedLM(TransformerLM):
         elif image_backbone.upper() == "VIT":
             self.image_encoder = ViTEncoder()
             # self.image_encoder_embedding = nn.Linear(768, d_model)
+        elif image_backbone.upper() == "VIT_ALL":
+            self.image_encoder = ViTEncoder(patch_size=16)
+            self.image_encoder_embedding = nn.Linear(768, d_model)
+            self.prefix_length = 197
         elif image_backbone.upper() == "ST":
             # print("Unimplemented Yet")
             # return None
@@ -481,17 +485,17 @@ class TransformerConditionedLM(TransformerLM):
         decoder_output = self.classifier(decoder_output)
         return decoder_output, encoded_seq, decode_lenths, sort_ind
     
-    def action_to_image(self, action):
-        # Designed for RL
-        # action size is fixed due to some reason
-        # [Batch, 49 * 2048 + sentence_embed]
-        assert action.size(-1) >= 49*2048, "Action size too small"
-        imgs = action[:, :49*2048].view(1, 49, 2048)
-        gx = imgs.mean(1)
-        if self.use_refine_encoder:
-            gx, imgs = self.refine_encoder(imgs)
-        # imgs = imgs.to(device)
-        return imgs, gx
+    # def action_to_image(self, action):
+    #     # Designed for RL
+    #     # action size is fixed due to some reason
+    #     # [Batch, 49 * 2048 + sentence_embed]
+    #     assert action.size(-1) >= 49*2048, "Action size too small"
+    #     imgs = action[:, :49*2048].view(1, 49, 2048)
+    #     gx = imgs.mean(1)
+    #     if self.use_refine_encoder:
+    #         gx, imgs = self.refine_encoder(imgs)
+    #     # imgs = imgs.to(device)
+    #     return imgs, gx
     
     def beam_search(
             self,
@@ -710,6 +714,9 @@ class TransformerSentenceLM(TransformerConditionedLM):
             # Encoder
             encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=32, dim_feedforward=4*d_model,
                                                     activation=activation, batch_first=batch_first, norm_first=norm_first)
+            
+            # encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=8, dim_feedforward=4*d_model,
+            #                                         activation=activation, batch_first=batch_first, norm_first=norm_first)
             self.sentence_encoder = nn.TransformerEncoder(encoder_layer, 6, encoder_norm)
             self.mu = nn.Linear(d_model, sentence_embed)
             self.make_memory = nn.Linear(sentence_embed, d_model)
