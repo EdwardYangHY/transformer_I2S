@@ -95,15 +95,6 @@ def test(model, config):
             caplens = caplens.unsqueeze(0)
             mu = model.get_mu(caps, caplens, padding_mask)
 
-            # -------------------------------------------------------------------------------------------
-            # mu_prefix = prefix_i2u_model.get_mu(caps, caplens, padding_mask)
-            # -------------------------------------------------------------------------------------------
-
-            # reparamatize
-            # log_std = torch.full_like(mu, 0.1).log()
-            # eps = torch.randn_like(log_std)  # (batch, sentence_embed)
-            # mu = mu + eps*log_std.exp()  # (batch, sentence_embed)
-
             imgs, gx = model.image_encoder(imgs)
             flatten_imgs = imgs.reshape(-1, imgs.size(1)*imgs.size(2))
             # if flatten_imgs.dim() == 2:
@@ -111,20 +102,6 @@ def test(model, config):
             # if mu.dim() == 2:
             #     mu = mu.unsqueeze(0)
             action = torch.cat([flatten_imgs, mu], dim=1)
-
-            # -------------------------------------------------------------------------------------------
-            # action_prefix = torch.cat([flatten_imgs, mu_prefix], dim=1)
-            # seqs_prefix = model.decode(action=action_prefix, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
-            # words_prefix = seq2words(seq=seqs_prefix, rev_word_map=rev_word_map, special_words=special_words)
-            # ### This is for Tacotron2 trained by ourselves
-            # audio_prefix = u2s(
-            #     words=words_prefix,
-            #     tacotron2_model=tacotron_model,
-            #     hifigan_model=hifigan_model,
-            #     device=device
-            #     )
-            # trans_prefix = s2t(audio=audio_prefix, asr_model=asr_model, asr_processor=asr_processor, device=device)
-            # -------------------------------------------------------------------------------------------
 
             seqs = model.decode(action=action, start_unit=word_map["<start>"], end_unit=word_map["<end>"], max_len=150, beam_size=10)
             words = seq2words(seq=seqs, rev_word_map=rev_word_map, special_words=special_words)
@@ -188,15 +165,7 @@ def test(model, config):
 def main(model_path):
     # is_debug = False
     if is_debug:
-        # if socket.gethostname() == "pikaia25":
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Prefix_baseline_BLEU_12.5"
-        # elif socket.gethostname() == "pikaia28":
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12"
-        # else:
-        #     model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
-        # model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Codec_baseline_BLEU_12_7*7_no_tune"
         pass
-        # model_path = "../../saved_model/I2U/komatsu_4_captions_256_hubert/Prefix_baseline_BLEU_12.5"
 
     global word_map, rev_word_map, special_words, i2u_model
     if os.path.isdir(model_path):

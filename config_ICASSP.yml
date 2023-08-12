@@ -3,7 +3,7 @@ I2U:
   # data_folder: origin_3_captions_256_hubert_sentence
   # data_folder: SpokenCOCO_5_captions_hubert_256
   # data_folder: komatsu_4_captions_256_hubert
-  # data_folder: komatsu_4_captions_224_hubert
+  data_folder: komatsu_4_captions_224_hubert
   # data_folder: komatsu_4_captions_224_hubert_10_percent
   # data_folder: komatsu_4_captions_224_hubert_20_percent
   # data_folder: komatsu_4_captions_256_hubert_10_percent
@@ -13,18 +13,20 @@ I2U:
   # data_folder: komatsu_4_captions_224_ResDAVEnet_20_percent
 
   # data_folder: SpokenCOCO_5_captions_hubert_224
-  data_folder: record_3_captions_224_hubert_there_sentence_10_speakers
+  # data_folder: SpokenCOCO_5_captions_hubert_224_10%
+  # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers
   # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_5_percent
   # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_10_percent
   # data_folder: record_3_captions_224_hubert_there_sentence_10_speakers_20_percent
   
-  pretrained_model: "/net/papilio/storage6/phusaeng/fun/spolacq/spolacq/models/I2U/_23-06-23_01-42-55_pikaia31_word_map_spokencoco_SpokenCOCO_pretrained_hubert_i2u_with_sentence_embedding.pt"
-  
+  pretrained_model: # /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/I2U/SpokenCOCO_5_captions_hubert_224_10%/23-07-26_17:12:14_ICASSP_pikaia23/i2u_ICASSP_model.pt
+  # pretrained_model: /net/papilio/storage2/yhaoyuan/transformer_I2S/saved_model/I2U/SpokenCOCO_5_captions_hubert_224_10%/ICASSP_no_sentence/i2u_ICASSP_model.pt
+
   # word_map: "data/I2U/processed/WORDMAP_food_4_cap_per_img_1_min_word_freq.json"
   # data_name: "food_4_cap_per_img_1_min_word_freq"
-  captions_per_image: 3 # 4
+  captions_per_image: 4 # 4
   min_word_freq: 1
-  max_len: 202
+  max_len: 102 # 102 for synthesized speech, 202 for real speech
   d_embed: 8
   batch_size: 64 #96
   num_workers: 10
@@ -32,3 +34,5 @@ I2U:
   epoch: 100
   beam_size: 50
   # model_path: "models/I2U/i2u_with_sentence_embedding.pt"
+
+  with_sentence_embedding: True # True

@@ -120,6 +120,8 @@ class ImageToUnit(nn.Module):
         self.linear2 = nn.Linear(d_embed, d_model)
         self.head = nn.Linear(d_model, self.vocab_size)
 
+        self.with_sentence_embedding = True
+
         # self.image_encoder = VisionTransformer(patch_size=8, qkv_bias=True)
         # state_dict = torch.hub.load_state_dict_from_url(
         #     url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth",
@@ -127,6 +129,9 @@ class ImageToUnit(nn.Module):
         # )
         # self.image_encoder.load_state_dict(state_dict)
         self.image_encoder = ViTEncoder(patch_size=8) # should we try with patch with 16
+
+    def disable_sentence_embedding(self):
+        self.with_sentence_embedding = False
 
     def forward(
         self,
@@ -140,30 +145,36 @@ class ImageToUnit(nn.Module):
         x = self.pos_enc(x)
         x = x.permute(1, 0, 2)
 
-        z = self.encoder(x, src_key_padding_mask=padding_mask)
 
-        # Global average pooling
-        z = z * padding_mask.logical_not().unsqueeze(2)
-        z = z.sum(dim=1) / seq_len.unsqueeze(1)
-        # z = z.sum(dim=1) / seq_len
+        ### Encoding the units into residual sentence embedding
+        if self.with_sentence_embedding:
+            z = self.encoder(x, src_key_padding_mask=padding_mask)
 
-        # Reparameterization trick
-        mean = self.linear1(z)
-        std = torch.full_like(mean, self.std)
-        eps = torch.randn_like(mean)
-        z = mean + self.std * eps
+            # Global average pooling
+            z = z * padding_mask.logical_not().unsqueeze(2)
+            z = z.sum(dim=1) / seq_len.unsqueeze(1)
+            # z = z.sum(dim=1) / seq_len
 
-        z = self.linear2(z)
+            # Reparameterization trick
+            mean = self.linear1(z)
+            std = torch.full_like(mean, self.std)
+            eps = torch.randn_like(mean)
+            z = mean + self.std * eps
+
+            z = self.linear2(z)
 
         with torch.no_grad():
             self.image_encoder.eval()
             # img_features = self.image_encoder(imgs)
             img_features, gx = self.image_encoder(imgs)
 
-        if z.dim() == 2:
-            z = z.unsqueeze(dim=1)
-        # memory = torch.stack([img_features, z], dim=1)
-        memory = torch.cat([img_features, z], dim=1)
+        if self.with_sentence_embedding:
+            if z.dim() == 2:
+                z = z.unsqueeze(dim=1)
+            # memory = torch.stack([img_features, z], dim=1)
+            memory = torch.cat([img_features, z], dim=1)
+        else:
+            memory = img_features
 
         x = self.decoder(
             x,
@@ -172,7 +183,11 @@ class ImageToUnit(nn.Module):
             tgt_key_padding_mask=padding_mask,
         )
         logits = self.head(x)
-        return logits, self.kl_weight * self.kl_loss(mean, std)
+
+        if self.with_sentence_embedding:
+            return logits, self.kl_weight * self.kl_loss(mean, std)
+        else:
+            return logits, 0
 
     def subsequent_mask(self, size: int):
         return torch.triu(torch.full((size, size), float("-inf")), diagonal=1)

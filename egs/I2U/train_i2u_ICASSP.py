@@ -17,6 +17,7 @@ from datasets import CaptionDataset, CaptionDataset_transformer
 sys.path.append("./models")
 # from models_i2u import ImageToUnit
 from models_k import ImageToUnit
+from models_ICASSP import ImageToUnit as ImageToUnit_ICASSP
 
 
 def train(device, loader, model, reconstruction_loss, optimizer):
@@ -140,11 +141,12 @@ def main(config):
     # with open(word_map_path) as j:
     #     word_map = json.load(j)
 
-    model = ImageToUnit(word_map=word_map, max_len=config["I2U"]["max_len"]).to(device)
+    # model = ImageToUnit(word_map=word_map, max_len=config["I2U"]["max_len"]).to(device)
+    model = ImageToUnit_ICASSP(word_map=word_map, max_len=config["I2U"]["max_len"]).to(device)
     reconstruction_loss = nn.CrossEntropyLoss(ignore_index=word_map["<pad>"], reduction="sum")
     optimizer = torch.optim.Adam(model.parameters(), lr=config["I2U"]["lr"])
 
-    if config["I2U"]["pretrained_model"] != "":
+    if config["I2U"]["pretrained_model"] != None:
         ckpt = torch.load(config["I2U"]["pretrained_model"])
         ckpt_new = ckpt.copy()
         for k in ckpt.keys():
@@ -154,6 +156,9 @@ def main(config):
                 del ckpt_new[k]
         model.load_state_dict(ckpt_new, strict=False)
         print(f"Loading checkpoint {config['I2U']['pretrained_model']}")
+    
+    if config["I2U"]["with_sentence_embedding"] == False:
+        model.disable_sentence_embedding()
 
 
     max_accuracy = 0
@@ -178,7 +183,7 @@ def main(config):
         if max_accuracy < val_accuracy:
             max_accuracy = val_accuracy
             # f"../../saved_model/I2U/{dir_name}/{train_ID}/" + "i2u_with_sentence_embedding.pt"
-            torch.save(model.state_dict(), f"../../saved_model/I2U/{dir_name}/{train_ID}/" + "i2u_with_sentence_embedding.pt")
+            torch.save(model.state_dict(), f"../../saved_model/I2U/{dir_name}/{train_ID}/" + "i2u_ICASSP_model.pt")
 
 
 if __name__ == "__main__":

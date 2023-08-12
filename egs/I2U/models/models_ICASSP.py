@@ -151,6 +151,11 @@ class ImageToUnit(nn.Module):
             self.image_encoder.eval()
             img_features = self.image_encoder(imgs)
 
+        ### Modify img_features and z to be the same shape
+        ### Let's keep only the first token
+        if img_features.size(1) > 1:
+            img_features = img_features[:,0,:]
+
         memory = torch.stack([img_features, z], dim=1)
 
         x = self.decoder(
@@ -185,6 +190,9 @@ class ImageToUnit(nn.Module):
 
         mu = self.linear1(z)
         return mu
+    
+    def disable_sentence_embedding(self):
+        pass
 
     @torch.inference_mode()
     def infer(self, action: torch.Tensor, beam_size: int = 50):
